@@ -110,37 +110,38 @@
                         </button>
                     </div>
                 </div>
-                <div class="ai-tools-section">
-                    <div class="ai-tools-header">
-                        <span class="ai-tools-title">AI Tools</span>
-                    </div>
-                    <div class="ai-tools-buttons">
-                        <button id="ai-detector-btn" class="btn btn-ai-tool" title="Enhanced AI Detector">
-                            <i class="fas fa-robot"></i>
-                            <span>AI Detector</span>
-                        </button>
-                        <button id="humanizer-btn" class="btn btn-ai-tool" title="Humanizer">
-                            <i class="fas fa-user"></i>
-                            <span>Humanizer</span>
-                        </button>
-                        <button id="test-ai-btn" class="btn btn-ai-tool" title="Test AI Detection">
-                            <i class="fas fa-flask"></i>
-                            <span>Test AI</span>
-                        </button>
-                    </div>
-                </div>
                 <div class="chat-messages" id="chat-messages">
                     <div class="message assistant-message">
                         <i class="fas fa-robot"></i>
                         <div class="message-content">
-                            <span>Hi! I'm your AI writing assistant. I can help you with:</span>
-                            <div class="quick-actions">
-                                <button class="quick-action-btn" data-prompt="Help me brainstorm ideas for my essay">💡 Brainstorm Ideas</button>
-                                <button class="quick-action-btn" data-prompt="How can I improve my introduction?">✍️ Improve Writing</button>
-                                <button class="quick-action-btn" data-prompt="Check my essay for grammar and style">📝 Grammar Check</button>
-                                <button class="quick-action-btn" data-prompt="Help me write a conclusion">🎯 Write Conclusion</button>
+                            <span>Hi! I'm your AI writing assistant. I can help you with writing, or use these AI tools:</span>
+                            <div class="ai-tools-inline">
+                                <button id="ai-detector-btn" class="btn btn-ai-tool" title="Enhanced AI Detector">
+                                    <i class="fas fa-robot"></i>
+                                    <span>AI Detector</span>
+                                </button>
+                                <button id="humanizer-btn" class="btn btn-ai-tool" title="Humanizer">
+                                    <i class="fas fa-user"></i>
+                                    <span>Humanizer</span>
+                                </button>
                             </div>
                         </div>
+                    </div>
+                </div>
+                <div class="quick-actions-carousel">
+                    <div class="carousel-container">
+                        <button class="carousel-nav carousel-prev" id="carousel-prev">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <div class="carousel-track">
+                            <button class="quick-action-chip" data-prompt="Help me brainstorm ideas for my essay">💡 Brainstorm Ideas</button>
+                            <button class="quick-action-chip" data-prompt="How can I improve my introduction?">✍️ Improve Writing</button>
+                            <button class="quick-action-chip" data-prompt="Check my essay for grammar and style">📝 Grammar Check</button>
+                            <button class="quick-action-chip" data-prompt="Help me write a conclusion">🎯 Write Conclusion</button>
+                        </div>
+                        <button class="carousel-nav carousel-next" id="carousel-next">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
                     </div>
                 </div>
                 <div class="chat-input-area">

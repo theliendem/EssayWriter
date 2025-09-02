@@ -126,9 +126,9 @@ app.get('/api/essays/:id/versions', (req, res) => {
   const page = parseInt(req.query.page) || 0;
   const limit = parseInt(req.query.limit) || 50;
   const offset = page * limit;
-  
+
   console.log(`Getting versions for essay ID: ${id}, page: ${page}, limit: ${limit}, offset: ${offset}`);
-  
+
   // Get total count first
   db.get('SELECT COUNT(*) as total FROM essay_versions WHERE essay_id = ?', [id], (err, countResult) => {
     if (err) {
@@ -136,18 +136,18 @@ app.get('/api/essays/:id/versions', (req, res) => {
       res.status(500).json({ error: err.message });
       return;
     }
-    
+
     const totalVersions = countResult.total;
-    
+
     // Get paginated versions
-    db.all('SELECT * FROM essay_versions WHERE essay_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?', 
+    db.all('SELECT * FROM essay_versions WHERE essay_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
       [id, limit, offset], (err, rows) => {
         if (err) {
           console.error('Database error getting versions:', err);
           res.status(500).json({ error: err.message });
           return;
         }
-        
+
         console.log(`Found ${rows.length} versions for essay ${id} (page ${page})`);
         res.json({
           versions: rows,
@@ -165,10 +165,10 @@ app.get('/api/essays/:id/versions', (req, res) => {
 app.post('/api/essays/:id/versions', (req, res) => {
   const { id } = req.params;
   const { title, content, changes_only } = req.body;
-  
+
   console.log(`Creating version for essay ID: ${id}, changes: ${changes_only}`);
-  
-  db.run('INSERT INTO essay_versions (essay_id, title, content, changes_only) VALUES (?, ?, ?, ?)', 
+
+  db.run('INSERT INTO essay_versions (essay_id, title, content, changes_only) VALUES (?, ?, ?, ?)',
     [id, title, content, changes_only || null], function (err) {
       if (err) {
         console.error('Database error creating version:', err);
@@ -198,12 +198,16 @@ app.get('/api/essays/:id/versions/:versionId', (req, res) => {
 // AI Chat endpoint with real AI integration
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, context } = req.body;
+    const { message, context, chatHistory } = req.body;
 
-    console.log('Chat request received:', { message: message?.substring(0, 50), hasContext: !!context });
+    console.log('Chat request received:', {
+      message: message?.substring(0, 50),
+      hasContext: !!context,
+      chatHistoryLength: chatHistory?.length || 0
+    });
 
     // Try multiple AI providers in order of preference
-    let result = await tryAIProviders(message, context);
+    let result = await tryAIProviders(message, context, chatHistory);
 
     if (!result) {
       console.log('All AI providers failed, using built-in response');
@@ -228,12 +232,12 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // Try multiple AI providers
-async function tryAIProviders(message, context) {
+async function tryAIProviders(message, context, chatHistory) {
   const providers = [
-    { name: 'Groq', fn: () => tryGroq(message, context) },
-    { name: 'Local AI', fn: () => tryLocalAI(message, context) },
-    { name: 'Hugging Face', fn: () => tryHuggingFace(message, context) },
-    { name: 'OpenAI Compatible', fn: () => tryOpenAICompatible(message, context) }
+    { name: 'Groq', fn: () => tryGroq(message, context, chatHistory) },
+    { name: 'Local AI', fn: () => tryLocalAI(message, context, chatHistory) },
+    { name: 'Hugging Face', fn: () => tryHuggingFace(message, context, chatHistory) },
+    { name: 'OpenAI Compatible', fn: () => tryOpenAICompatible(message, context, chatHistory) }
   ];
 
   for (const provider of providers) {
@@ -256,12 +260,13 @@ async function tryAIProviders(message, context) {
 }
 
 // Local AI using Python script
-async function tryLocalAI(message, context) {
+async function tryLocalAI(message, context, chatHistory) {
   return new Promise((resolve, reject) => {
     const python = spawn('python3', [
       path.join(__dirname, 'ai_chat.py'),
       message,
-      context || ''
+      context || '',
+      JSON.stringify(chatHistory || [])
     ]);
 
     let output = '';
@@ -301,7 +306,7 @@ async function tryLocalAI(message, context) {
 }
 
 // Hugging Face Inference API (free tier)
-async function tryHuggingFace(message, context) {
+async function tryHuggingFace(message, context, chatHistory) {
   try {
     // Use a simpler, more reliable model
     const response = await axios.post(
@@ -339,35 +344,52 @@ async function tryHuggingFace(message, context) {
 }
 
 // Try OpenAI-compatible APIs (like OpenRouter, etc.)
-async function tryOpenAICompatible(message, context) {
+async function tryOpenAICompatible(message, context, chatHistory) {
   // This would require an API key, so we'll skip for now
   // but the structure is here for future implementation
   return null;
 }
 
 // Try Groq (free tier available)
-async function tryGroq(message, context) {
+async function tryGroq(message, context, chatHistory) {
   try {
     if (!process.env.GROQ_API_KEY) {
       console.log('Groq API key not found in environment variables');
       return null;
     }
 
-    const prompt = createEssayPrompt(message, context);
-
     console.log('Sending request to Groq API...');
-    const completion = await groq.chat.completions.create({
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert essay writing assistant. Provide helpful, specific, and actionable advice about essay writing. Keep responses concise but informative. Format your response clearly with bullet points or numbered lists when appropriate."
-        },
-        {
-          role: "user",
-          content: prompt
+
+    // Build messages array with chat history
+    const messages = [
+      {
+        role: "system",
+        content: "You are an expert essay writing assistant. Provide helpful, specific, and actionable advice about essay writing. Keep responses concise but informative. Format your response clearly with bullet points or numbered lists when appropriate."
+      }
+    ];
+
+    // Add chat history if available
+    if (chatHistory && Array.isArray(chatHistory)) {
+      chatHistory.forEach(msg => {
+        if (msg.role && msg.content) {
+          messages.push({
+            role: msg.role === 'assistant' ? 'assistant' : 'user',
+            content: msg.content
+          });
         }
-      ],
-      model: "llama-3.1-8b-instant", // Fast and capable model
+      });
+    }
+
+    // Add current message with context
+    const currentMessage = createEssayPrompt(message, context, chatHistory);
+    messages.push({
+      role: "user",
+      content: currentMessage
+    });
+
+    const completion = await groq.chat.completions.create({
+      messages: messages,
+      model: "openai/gpt-oss-120b", // Fast and capable model
       temperature: 0.7,
       max_tokens: 600,
       top_p: 1,
@@ -392,17 +414,17 @@ async function tryGroq(message, context) {
 }
 
 // Create a proper prompt for essay assistance
-function createEssayPrompt(message, context) {
-  const contextSummary = context ? context.substring(0, 300) : 'No essay content provided yet.';
-
-  let prompt = `I'm working on an essay and need help with: "${message}"\n\n`;
+function createEssayPrompt(message, context, chatHistory) {
+  let prompt = `${message}\n\n`;
 
   if (context && context.trim()) {
-    prompt += `Here's what I have written so far:\n"${contextSummary}"\n\n`;
+    prompt += `Here's my current essay:\n"${context}"\n\n`;
+  } else {
+    prompt += 'No essay content provided yet.\n\n';
   }
 
-  prompt += `Please provide specific, actionable advice to help me improve my essay writing. `;
-  prompt += `Focus on practical suggestions I can implement right away.`;
+  // Note: For Groq, we don't need to include chat history in the prompt since we're using the messages array
+  // For other providers that don't support conversation history, we could include recent context here
 
   return prompt;
 }

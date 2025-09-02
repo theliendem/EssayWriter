@@ -6,13 +6,32 @@ class EssayPlatform {
         this.lastSavedContent = null;
         this.lastVersionContent = null;
         this.versionHistoryInterval = null;
+        this.versionSaveTimeout = null;
         this.isSaving = false;
         this.selectedVersion = null;
         this.versions = [];
         this.versionPage = 0;
         this.versionHasMore = true;
         this.versionLoading = false;
+        this.sessionGroups = [];
+        this.chatHistory = [];
+        this.selectionTimeout = null;
         this.init();
+    }
+
+    // Helper function to properly handle timezone conversion
+    parseTimestamp(timestamp) {
+        // Create date object from timestamp
+        const date = new Date(timestamp);
+
+        // If the timestamp doesn't include timezone info, SQLite CURRENT_TIMESTAMP is UTC
+        // We need to check if this is a UTC timestamp and handle it properly
+        if (typeof timestamp === 'string' && !timestamp.includes('T') && !timestamp.includes('Z')) {
+            // SQLite format: "YYYY-MM-DD HH:MM:SS" - this is UTC
+            return new Date(timestamp + 'Z'); // Add Z to indicate UTC
+        }
+
+        return date;
     }
 
     init() {
@@ -22,6 +41,7 @@ class EssayPlatform {
         this.setupEditor();
         this.setupResizing();
         this.initializeChatPanel();
+        this.initializeCarousel();
 
         // Initialize format buttons
         setTimeout(() => {
@@ -79,11 +99,13 @@ class EssayPlatform {
         // Update format buttons when selection changes
         editor.addEventListener('selectionchange', () => {
             this.updateFormatButtons();
+            this.updateSelectionStats();
         });
 
         // Update format buttons when editor gains focus
         editor.addEventListener('focus', () => {
             this.updateFormatButtons();
+            this.updateSelectionStats();
         });
 
         // Global selection change listener for better cross-browser support
@@ -96,7 +118,40 @@ class EssayPlatform {
                 if (editorElement.contains(range.commonAncestorContainer) ||
                     range.commonAncestorContainer === editorElement) {
                     this.updateFormatButtons();
+                    this.updateSelectionStats();
                 }
+            } else {
+                // No selection, show regular stats
+                this.updateStats();
+            }
+        });
+
+        // Additional events for comprehensive selection tracking
+        editor.addEventListener('mousedown', () => {
+            // Clear any existing timeout when starting a new selection
+            if (this.selectionTimeout) {
+                clearTimeout(this.selectionTimeout);
+                this.selectionTimeout = null;
+            }
+        });
+
+        editor.addEventListener('touchstart', () => {
+            this.updateSelectionStats();
+        });
+
+        editor.addEventListener('touchend', () => {
+            this.updateSelectionStats();
+        });
+
+        // Handle double-click and triple-click selections
+        editor.addEventListener('dblclick', () => {
+            setTimeout(() => this.updateSelectionStats(), 10);
+        });
+
+        // Handle Ctrl+A (select all)
+        editor.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                setTimeout(() => this.updateSelectionStats(), 10);
             }
         });
 
@@ -128,12 +183,21 @@ class EssayPlatform {
             }
         });
 
-        // Quick action buttons
+        // Quick action buttons (both old and new styles)
         document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('quick-action-btn')) {
+            if (e.target.classList.contains('quick-action-btn') || e.target.classList.contains('quick-action-chip')) {
                 const prompt = e.target.dataset.prompt;
-                this.sendQuickAction(prompt);
+                this.populateQuickAction(prompt);
             }
+        });
+
+        // Carousel navigation
+        document.getElementById('carousel-prev').addEventListener('click', () => {
+            this.scrollCarousel('prev');
+        });
+
+        document.getElementById('carousel-next').addEventListener('click', () => {
+            this.scrollCarousel('next');
         });
 
         // Clear chat button
@@ -160,9 +224,7 @@ class EssayPlatform {
             this.runHumanizer();
         });
 
-        document.getElementById('test-ai-btn').addEventListener('click', () => {
-            this.testAIDetection();
-        });
+
 
         // Home navigation
         document.getElementById('home-link').addEventListener('click', () => {
@@ -269,12 +331,19 @@ class EssayPlatform {
         editor.addEventListener('input', autoSave);
         titleInput.addEventListener('input', autoSave);
 
-        // Version history - save snapshot every 10 seconds if there are changes
-        this.versionHistoryInterval = setInterval(() => {
-            if (this.currentEssayId && this.hasVersionChanges()) {
-                this.saveVersionSnapshot();
-            }
-        }, 10000); // 10 seconds
+        // Version history - save snapshot after 5 seconds of inactivity
+        const scheduleVersionSave = () => {
+            clearTimeout(this.versionSaveTimeout);
+            this.versionSaveTimeout = setTimeout(() => {
+                if (this.currentEssayId && this.hasVersionChanges()) {
+                    this.saveVersionSnapshot();
+                }
+            }, 5000); // 5 seconds after last change
+        };
+
+        // Schedule version save on content changes
+        editor.addEventListener('input', scheduleVersionSave);
+        titleInput.addEventListener('input', scheduleVersionSave);
 
         // Auto-save before page unload
         window.addEventListener('beforeunload', (e) => {
@@ -309,25 +378,84 @@ class EssayPlatform {
 
     updateSelectionStats() {
         const selection = window.getSelection();
+        const editor = document.getElementById('editor');
+        
+        // Clear any existing timeout
+        if (this.selectionTimeout) {
+            clearTimeout(this.selectionTimeout);
+            this.selectionTimeout = null;
+        }
+
+        // Check if we have a selection within the editor
         if (selection.rangeCount > 0) {
-            const selectedText = selection.toString();
-            if (selectedText.trim()) {
-                const words = selectedText.trim().split(/\s+/).length;
-                const characters = selectedText.length;
-                const sentences = selectedText.split(/[.!?]+/).filter(s => s.trim()).length;
-                const paragraphs = selectedText.split(/\n\s*\n/).filter(p => p.trim()).length;
+            const range = selection.getRangeAt(0);
+            const isInEditor = editor.contains(range.commonAncestorContainer) || 
+                             range.commonAncestorContainer === editor;
+            
+            if (isInEditor) {
+                const selectedText = selection.toString();
+                
+                if (selectedText.trim()) {
+                    // Calculate selection stats
+                    const trimmedText = selectedText.trim();
+                    const words = trimmedText ? trimmedText.split(/\s+/).length : 0;
+                    const characters = selectedText.length;
+                    const charactersNoSpaces = selectedText.replace(/\s/g, '').length;
+                    
+                    // More accurate sentence counting
+                    const sentences = trimmedText ? 
+                        trimmedText.split(/[.!?]+/).filter(s => s.trim().length > 0).length : 0;
+                    
+                    // More accurate paragraph counting - handle both line breaks and HTML paragraphs
+                    let paragraphs = 0;
+                    if (trimmedText) {
+                        // Count by double line breaks first
+                        const byLineBreaks = trimmedText.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+                        paragraphs = Math.max(1, byLineBreaks.length);
+                    }
 
-                // Update stats with selection info
-                document.getElementById('word-count').textContent = `${words} (selected)`;
-                document.getElementById('char-count').textContent = `${characters} (selected)`;
-                document.getElementById('sentence-count').textContent = `${sentences} (selected)`;
-                document.getElementById('paragraph-count').textContent = `${paragraphs} (selected)`;
+                    // Update stats with selection info
+                    document.getElementById('word-count').textContent = `${words} selected`;
+                    document.getElementById('char-count').textContent = `${characters} selected`;
+                    document.getElementById('sentence-count').textContent = `${sentences} selected`;
+                    document.getElementById('paragraph-count').textContent = `${paragraphs} selected`;
 
-                // Reset after 3 seconds
-                setTimeout(() => {
-                    this.updateStats();
-                }, 3000);
+                    // Add visual indicator that these are selection stats
+                    this.addSelectionIndicator();
+
+                    // Set timeout to reset stats when selection is likely done
+                    this.selectionTimeout = setTimeout(() => {
+                        // Double-check if selection still exists before resetting
+                        const currentSelection = window.getSelection();
+                        if (!currentSelection.toString().trim()) {
+                            this.updateStats();
+                            this.removeSelectionIndicator();
+                        }
+                    }, 2000);
+
+                    return; // Exit early since we're showing selection stats
+                }
             }
+        }
+
+        // No valid selection, show regular document stats
+        this.updateStats();
+        this.removeSelectionIndicator();
+    }
+
+    addSelectionIndicator() {
+        // Add a visual indicator that we're showing selection stats
+        const statsContainer = document.querySelector('.stats');
+        if (statsContainer && !statsContainer.classList.contains('selection-mode')) {
+            statsContainer.classList.add('selection-mode');
+        }
+    }
+
+    removeSelectionIndicator() {
+        // Remove the selection indicator
+        const statsContainer = document.querySelector('.stats');
+        if (statsContainer) {
+            statsContainer.classList.remove('selection-mode');
         }
     }
 
@@ -707,17 +835,22 @@ class EssayPlatform {
                 this.renderVersionItem(currentVersion, versionsList, true);
             }
 
-            // Add new versions to the array and render them
+            // Add new versions to the array
             this.versions.push(...newVersions);
-            newVersions.forEach(version => {
-                this.renderVersionItem(version, versionsList, false);
-            });
+
+            // Group all versions by sessions and render
+            if (!append) {
+                this.renderSessionGroups(versionsList);
+            } else {
+                // For append, just add new versions to existing structure
+                this.renderNewVersions(newVersions, versionsList);
+            }
 
             // Show empty message if no versions exist
             if (this.versions.length === 0 && !append) {
                 const emptyMessage = document.createElement('div');
                 emptyMessage.className = 'version-item empty';
-                emptyMessage.innerHTML = '<div class="version-title">No saved versions yet</div><div class="version-changes">Versions are saved every 10 seconds when you make changes</div>';
+                emptyMessage.innerHTML = '<div class="version-title">No saved versions yet</div><div class="version-changes">Versions are saved 5 seconds after you stop making changes</div>';
                 versionsList.appendChild(emptyMessage);
             }
 
@@ -734,12 +867,128 @@ class EssayPlatform {
         }
     }
 
+    renderSessionGroups(container) {
+        // Clear existing content except current version
+        const currentVersionElement = container.querySelector('.version-item.current');
+        container.innerHTML = '';
+
+        if (currentVersionElement) {
+            container.appendChild(currentVersionElement);
+        }
+
+        // Group versions by sessions
+        const sessions = this.groupVersionsBySessions(this.versions);
+
+        sessions.forEach(session => {
+            this.renderSessionGroup(session, container);
+        });
+    }
+
+    renderNewVersions(newVersions, container) {
+        // For appending new versions, add them to the last session or create new ones
+        const newSessions = this.groupVersionsBySessions(newVersions);
+        newSessions.forEach(session => {
+            this.renderSessionGroup(session, container);
+        });
+    }
+
+    renderSessionGroup(session, container) {
+        const sessionElement = document.createElement('div');
+        sessionElement.className = 'version-session';
+
+        const startDate = this.parseTimestamp(session.startTime);
+        const endDate = this.parseTimestamp(session.endTime);
+        const sessionDuration = Math.round((endDate - startDate) / (1000 * 60)); // minutes
+
+        const sessionHeader = document.createElement('div');
+        sessionHeader.className = 'session-header';
+
+        // Format date and time in local timezone
+        const dateOptions = {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        };
+        const timeOptions = {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        };
+
+        sessionHeader.innerHTML = `
+            <div class="session-info">
+                <div class="session-date">${startDate.toLocaleDateString(undefined, dateOptions)} ${startDate.toLocaleTimeString(undefined, timeOptions)}</div>
+                <div class="session-summary">${session.versions.length} versions • ${sessionDuration > 0 ? sessionDuration + ' min' : 'Quick edit'}</div>
+            </div>
+            <i class="fas fa-chevron-down session-toggle"></i>
+        `;
+
+        const sessionVersions = document.createElement('div');
+        sessionVersions.className = 'session-versions';
+
+        session.versions.forEach(version => {
+            this.renderSessionVersionItem(version, sessionVersions);
+        });
+
+        sessionHeader.addEventListener('click', () => {
+            const toggle = sessionHeader.querySelector('.session-toggle');
+            const isExpanded = sessionVersions.classList.contains('expanded');
+
+            if (isExpanded) {
+                sessionVersions.classList.remove('expanded');
+                toggle.classList.remove('expanded');
+            } else {
+                sessionVersions.classList.add('expanded');
+                toggle.classList.add('expanded');
+            }
+        });
+
+        sessionElement.appendChild(sessionHeader);
+        sessionElement.appendChild(sessionVersions);
+        container.appendChild(sessionElement);
+    }
+
+    renderSessionVersionItem(version, container) {
+        const versionItem = document.createElement('div');
+        versionItem.className = 'session-version-item';
+
+        const date = this.parseTimestamp(version.created_at);
+        const timeOptions = {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        };
+        const timeString = date.toLocaleTimeString(undefined, timeOptions);
+
+        versionItem.innerHTML = `
+            <div class="version-time-small">${timeString}</div>
+            <div class="version-changes-small">${version.changes_only || 'No changes recorded'}</div>
+        `;
+
+        versionItem.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.selectVersion(version, versionItem);
+        });
+
+        container.appendChild(versionItem);
+    }
+
     renderVersionItem(version, container, isCurrent = false) {
         const versionItem = document.createElement('div');
         versionItem.className = `version-item ${isCurrent ? 'current' : ''}`;
 
-        const date = new Date(version.created_at);
-        const timeString = date.toLocaleString();
+        const date = this.parseTimestamp(version.created_at);
+        const dateTimeOptions = {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        };
+        const timeString = date.toLocaleString(undefined, dateTimeOptions);
 
         versionItem.innerHTML = `
             <div class="version-time">${timeString}${isCurrent ? '<span class="version-current-badge">Current</span>' : ''}</div>
@@ -755,8 +1004,8 @@ class EssayPlatform {
     }
 
     selectVersion(version, element) {
-        // Remove previous selection
-        document.querySelectorAll('.version-item').forEach(item => {
+        // Remove previous selection from both old and new structures
+        document.querySelectorAll('.version-item, .session-version-item').forEach(item => {
             item.classList.remove('selected');
         });
 
@@ -764,9 +1013,25 @@ class EssayPlatform {
         element.classList.add('selected');
         this.selectedVersion = version;
 
-        // Show preview
+        // Show preview with proper HTML formatting
         const previewContent = document.getElementById('version-preview-content');
-        previewContent.innerHTML = version.content;
+
+        if (version.id === 'current') {
+            // Show current version as-is with full HTML formatting
+            previewContent.innerHTML = version.content;
+        } else {
+            // Show the version content with full HTML formatting preserved
+            // For now, we'll show the version content directly to preserve formatting
+            // TODO: Implement HTML-aware diff highlighting in the future
+            previewContent.innerHTML = version.content;
+            
+            // Add a subtle indicator that this is a different version
+            const versionIndicator = document.createElement('div');
+            versionIndicator.className = 'version-indicator';
+            versionIndicator.innerHTML = '<small><em>Viewing historical version</em></small>';
+            previewContent.insertBefore(versionIndicator, previewContent.firstChild);
+        }
+
         previewContent.classList.remove('empty');
 
         // Enable restore button (except for current version)
@@ -804,11 +1069,183 @@ class EssayPlatform {
 
 
 
+    // Diff highlighting utility - creates visual red/green highlighting
+    createDiffHighlight(oldContent, newContent) {
+        // Convert HTML to plain text for comparison
+        const oldText = this.stripHtml(oldContent);
+        const newText = this.stripHtml(newContent);
+
+        // Split into words for granular comparison
+        const oldWords = this.splitIntoWords(oldText);
+        const newWords = this.splitIntoWords(newText);
+
+        // Compute word-level diff
+        const diff = this.computeWordDiff(oldWords, newWords);
+
+        // Render the diff with visual highlighting
+        return this.renderVisualDiff(diff);
+    }
+
+    stripHtml(html) {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        return temp.textContent || temp.innerText || '';
+    }
+
+    splitIntoWords(text) {
+        // Split text into words and whitespace, preserving both
+        return text.split(/(\s+)/).filter(part => part.length > 0);
+    }
+
+    computeWordDiff(oldWords, newWords) {
+        // Simple LCS-based diff algorithm
+        const m = oldWords.length;
+        const n = newWords.length;
+
+        // Create DP table for LCS
+        const dp = Array(m + 1).fill().map(() => Array(n + 1).fill(0));
+
+        // Fill DP table
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                if (oldWords[i - 1] === newWords[j - 1]) {
+                    dp[i][j] = dp[i - 1][j - 1] + 1;
+                } else {
+                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+        }
+
+        // Backtrack to create diff
+        const diff = [];
+        let i = m, j = n;
+
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && oldWords[i - 1] === newWords[j - 1]) {
+                // Words match
+                diff.unshift({ type: 'equal', word: oldWords[i - 1] });
+                i--; j--;
+            } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+                // Word was added in new version
+                diff.unshift({ type: 'added', word: newWords[j - 1] });
+                j--;
+            } else if (i > 0) {
+                // Word was removed from old version
+                diff.unshift({ type: 'removed', word: oldWords[i - 1] });
+                i--;
+            }
+        }
+
+        return diff;
+    }
+
+    renderVisualDiff(diff) {
+        let result = '';
+
+        diff.forEach(item => {
+            switch (item.type) {
+                case 'equal':
+                    result += this.escapeHtml(item.word);
+                    break;
+                case 'added':
+                    result += `<span class="diff-added">${this.escapeHtml(item.word)}</span>`;
+                    break;
+                case 'removed':
+                    result += `<span class="diff-removed">${this.escapeHtml(item.word)}</span>`;
+                    break;
+            }
+        });
+
+        return result;
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Group versions by editing sessions (within 30 minutes of each other)
+    groupVersionsBySessions(versions) {
+        if (!versions.length) return [];
+
+        const sessions = [];
+        let currentSession = null;
+        const sessionGapMinutes = 30;
+
+        versions.forEach(version => {
+            const versionTime = this.parseTimestamp(version.created_at);
+
+            if (!currentSession ||
+                (versionTime - this.parseTimestamp(currentSession.endTime)) > sessionGapMinutes * 60 * 1000) {
+                // Start new session
+                currentSession = {
+                    startTime: version.created_at,
+                    endTime: version.created_at,
+                    versions: [version],
+                    id: `session-${sessions.length}`
+                };
+                sessions.push(currentSession);
+            } else {
+                // Add to current session
+                currentSession.versions.push(version);
+                currentSession.endTime = version.created_at;
+            }
+        });
+
+        return sessions;
+    }
+
+    scrollCarousel(direction) {
+        const track = document.querySelector('.carousel-track');
+        const scrollAmount = 200; // pixels to scroll
+
+        if (direction === 'prev') {
+            track.scrollLeft -= scrollAmount;
+        } else {
+            track.scrollLeft += scrollAmount;
+        }
+
+        // Update navigation button states
+        setTimeout(() => {
+            this.updateCarouselNavigation();
+        }, 100);
+    }
+
+    updateCarouselNavigation() {
+        const track = document.querySelector('.carousel-track');
+        const prevBtn = document.getElementById('carousel-prev');
+        const nextBtn = document.getElementById('carousel-next');
+
+        if (!track || !prevBtn || !nextBtn) return;
+
+        const isAtStart = track.scrollLeft <= 0;
+        const isAtEnd = track.scrollLeft >= track.scrollWidth - track.clientWidth;
+
+        prevBtn.disabled = isAtStart;
+        nextBtn.disabled = isAtEnd;
+    }
+
+    initializeCarousel() {
+        // Set up initial carousel state
+        setTimeout(() => {
+            this.updateCarouselNavigation();
+
+            // Add scroll listener to update navigation
+            const track = document.querySelector('.carousel-track');
+            if (track) {
+                track.addEventListener('scroll', () => {
+                    this.updateCarouselNavigation();
+                });
+            }
+        }, 100);
+    }
+
     cleanup() {
-        // Clear version history interval
-        if (this.versionHistoryInterval) {
-            clearInterval(this.versionHistoryInterval);
-            this.versionHistoryInterval = null;
+        // Clear version save timeout
+        if (this.versionSaveTimeout) {
+            clearTimeout(this.versionSaveTimeout);
+            this.versionSaveTimeout = null;
         }
     }
 
@@ -883,7 +1320,10 @@ class EssayPlatform {
 
         if (!message) return;
 
-        // Add user message
+        // Add user message to chat history
+        this.chatHistory.push({ role: 'user', content: message });
+
+        // Add user message to UI
         this.addChatMessage(message, 'user');
         input.value = '';
 
@@ -891,7 +1331,10 @@ class EssayPlatform {
         this.addTypingIndicator();
 
         // Get essay context
-        const context = document.getElementById('editor').innerText.substring(0, 500);
+        const context = document.getElementById('editor').innerText.substring(0, 1000);
+
+        // Limit chat history to last 10 messages to avoid token limits
+        const recentChatHistory = this.chatHistory.slice(-10);
 
         try {
             const response = await fetch('/api/chat', {
@@ -899,7 +1342,11 @@ class EssayPlatform {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ message, context }),
+                body: JSON.stringify({ 
+                    message, 
+                    context,
+                    chatHistory: recentChatHistory
+                }),
             });
 
             const result = await response.json();
@@ -907,7 +1354,10 @@ class EssayPlatform {
             // Remove typing indicator
             this.removeTypingIndicator();
 
-            // Add AI response with source indicator
+            // Add AI response to chat history
+            this.chatHistory.push({ role: 'assistant', content: result.response });
+
+            // Add AI response with source indicator to UI
             this.addChatMessage(result.response, 'assistant', result.source, true);
         } catch (error) {
             console.error('Chat error:', error);
@@ -937,11 +1387,8 @@ class EssayPlatform {
 
         const messageTextElement = messageDiv.querySelector('.message-text');
 
-        if (animate && sender === 'assistant') {
-            this.streamText(messageTextElement, message);
-        } else {
-            messageTextElement.innerHTML = this.formatMarkdown(message);
-        }
+        // Always show text immediately without animation
+        messageTextElement.innerHTML = this.formatMarkdown(message);
     }
 
     formatMarkdown(text) {
@@ -953,14 +1400,16 @@ class EssayPlatform {
             .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
             // Inline code `code` (must come before italic)
             .replace(/`(.*?)`/g, '<code>$1</code>')
+            // Bullet points - convert * to bullet symbol (must come before italic)
+            .replace(/^[\s]*[\*\-•]\s+(.+)$/gm, '<li class="bullet-item">• $1</li>')
+            // Also handle bullet points that appear after line breaks
+            .replace(/(<br>)[\s]*[\*\-•]\s+(.+)/g, '$1<li class="bullet-item">• $2</li>')
             // Italic text *text* (but not bullet points)
             .replace(/(?<!^[\s]*)\*((?!\s)[^*\n]+?)\*/gm, '<em>$1</em>')
             // Line breaks
             .replace(/\n/g, '<br>')
             // Numbered lists
-            .replace(/^\d+\.\s(.+)$/gm, '<li>$1</li>')
-            // Bullet points - convert * to bullet symbol
-            .replace(/^[\*\-•]\s(.+)$/gm, '<li class="bullet-item">• $1</li>');
+            .replace(/^\d+\.\s(.+)$/gm, '<li>$1</li>');
 
         // Wrap consecutive list items in ul tags
         formatted = formatted.replace(/(<li[^>]*>.*?<\/li>(?:<br>)*)+/gs, (match) => {
@@ -972,44 +1421,7 @@ class EssayPlatform {
         return formatted;
     }
 
-    async streamText(element, text) {
-        element.innerHTML = '';
-        element.classList.add('typing');
 
-        // Split text into words for smoother streaming effect
-        const words = text.split(' ');
-        let currentText = '';
-        let wordIndex = 0;
-
-        const streamSpeed = 80; // milliseconds per word
-
-        const streamWriter = () => {
-            if (wordIndex < words.length) {
-                currentText += (wordIndex > 0 ? ' ' : '') + words[wordIndex];
-
-                // Apply markdown formatting to current text
-                element.innerHTML = this.formatMarkdown(currentText);
-
-                wordIndex++;
-
-                // Scroll to bottom as text appears
-                const messagesContainer = document.getElementById('chat-messages');
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
-                setTimeout(streamWriter, streamSpeed);
-            } else {
-                // Animation complete, remove typing class and set final formatted text
-                element.classList.remove('typing');
-                element.innerHTML = this.formatMarkdown(text);
-
-                // Final scroll to ensure everything is visible
-                const messagesContainer = document.getElementById('chat-messages');
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            }
-        };
-
-        streamWriter();
-    }
 
     addTypingIndicator() {
         const messagesContainer = document.getElementById('chat-messages');
@@ -1037,15 +1449,33 @@ class EssayPlatform {
         }
     }
 
+    populateQuickAction(prompt) {
+        // Populate the chat input with the prompt text
+        const chatInput = document.getElementById('chat-input');
+        chatInput.value = prompt;
+        
+        // Focus on the input so user can edit or send immediately
+        chatInput.focus();
+        
+        // Move cursor to the end of the text
+        chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
+    }
+
     async sendQuickAction(prompt) {
-        // Add user message
+        // Add user message to chat history
+        this.chatHistory.push({ role: 'user', content: prompt });
+
+        // Add user message to UI
         this.addChatMessage(prompt, 'user');
 
         // Show typing indicator
         this.addTypingIndicator();
 
         // Get essay context
-        const context = document.getElementById('editor').innerText.substring(0, 500);
+        const context = document.getElementById('editor').innerText.substring(0, 1000);
+
+        // Limit chat history to last 10 messages to avoid token limits
+        const recentChatHistory = this.chatHistory.slice(-10);
 
         try {
             const response = await fetch('/api/chat', {
@@ -1053,7 +1483,11 @@ class EssayPlatform {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ message: prompt, context }),
+                body: JSON.stringify({ 
+                    message: prompt, 
+                    context,
+                    chatHistory: recentChatHistory
+                }),
             });
 
             const result = await response.json();
@@ -1061,7 +1495,10 @@ class EssayPlatform {
             // Remove typing indicator
             this.removeTypingIndicator();
 
-            // Add AI response with source indicator
+            // Add AI response to chat history
+            this.chatHistory.push({ role: 'assistant', content: result.response });
+
+            // Add AI response with source indicator to UI
             this.addChatMessage(result.response, 'assistant', result.source, true);
         } catch (error) {
             console.error('Chat error:', error);
@@ -1076,13 +1513,7 @@ class EssayPlatform {
             <div class="message assistant-message">
                 <i class="fas fa-robot"></i>
                 <div class="message-content">
-                    <span>Chat cleared! How can I help you with your essay?</span>
-                    <div class="quick-actions">
-                        <button class="quick-action-btn" data-prompt="Help me brainstorm ideas for my essay">💡 Brainstorm Ideas</button>
-                        <button class="quick-action-btn" data-prompt="How can I improve my introduction?">✍️ Improve Writing</button>
-                        <button class="quick-action-btn" data-prompt="Check my essay for grammar and style">📝 Grammar Check</button>
-                        <button class="quick-action-btn" data-prompt="Help me write a conclusion">🎯 Write Conclusion</button>
-                    </div>
+                    <span>Chat cleared! How can I help you with your essay? Use the quick actions above or ask me anything.</span>
                 </div>
             </div>
         `;
@@ -1386,25 +1817,7 @@ class EssayPlatform {
         }
     }
 
-    async testAIDetection() {
-        this.showNotification('Testing enhanced AI detection...', 'info');
 
-        try {
-            const response = await fetch('/api/test-ai');
-            const result = await response.json();
-
-            if (result.status === 'success') {
-                this.showNotification('✅ Enhanced AI detection is working!', 'success');
-                this.addChatMessage(`🧪 AI Detection Test Results:\n\n✅ Enhanced detection is working properly!\n\nTest Analysis:\n• AI Probability: ${result.result.ai_probability}%\n• Human Probability: ${result.result.human_probability}%\n\nYou can now use the Enhanced AI Detector with confidence!`, 'assistant');
-            } else {
-                this.showNotification('❌ Enhanced AI detection failed', 'error');
-                this.addChatMessage(`🧪 AI Detection Test Results:\n\n❌ Enhanced detection failed: ${result.message}\n\nThe system will use fallback detection instead. This is still effective for AI detection!`, 'assistant');
-            }
-        } catch (error) {
-            this.showNotification('❌ Test failed - connection error', 'error');
-            this.addChatMessage(`🧪 AI Detection Test Results:\n\n❌ Connection error: ${error.message}\n\nPlease check that the server is running properly.`, 'assistant');
-        }
-    }
 
     loadEssayFromURL() {
         const urlParams = new URLSearchParams(window.location.search);
