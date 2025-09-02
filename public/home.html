@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EssayPro - Home</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="home-container">
+        <!-- Header -->
+        <header class="home-header">
+            <div class="header-left">
+                <h1 class="logo">
+                    <i class="fas fa-feather-alt"></i>
+                    EssayPro
+                </h1>
+                <p class="tagline">Your ultimate essay writing companion</p>
+            </div>
+            <div class="header-right">
+                <button id="new-essay-btn" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> New Essay
+                </button>
+                <button id="theme-toggle" class="btn btn-icon">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="home-main">
+            <div class="essays-section">
+                <div class="section-header">
+                    <h2>Your Essays</h2>
+                    <div class="view-options">
+                        <button id="grid-view" class="view-btn active">
+                            <i class="fas fa-th"></i>
+                        </button>
+                        <button id="list-view" class="view-btn">
+                            <i class="fas fa-list"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="essays-grid" class="essays-grid">
+                    <!-- Essays will be loaded here -->
+                </div>
+
+                <div id="empty-state" class="empty-state" style="display: none;">
+                    <div class="empty-icon">
+                        <i class="fas fa-feather-alt"></i>
+                    </div>
+                    <h3>No essays yet</h3>
+                    <p>Start your writing journey by creating your first essay</p>
+                    <button class="btn btn-primary" onclick="document.getElementById('new-essay-btn').click()">
+                        <i class="fas fa-plus"></i> Create Your First Essay
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- New Essay Modal -->
+    <div id="new-essay-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create New Essay</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="essay-title-input">Essay Title</label>
+                    <input type="text" id="essay-title-input" placeholder="Enter your essay title..." class="form-input">
+                </div>
+                <div class="form-group">
+                    <label for="essay-description">Description (optional)</label>
+                    <textarea id="essay-description" placeholder="Brief description of your essay..." class="form-textarea"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-new-essay" class="btn btn-secondary">Cancel</button>
+                <button id="create-essay" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Create Essay
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="home.js"></script>
+</body>
+</html>
