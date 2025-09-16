@@ -16,6 +16,11 @@ class EssayPlatform {
         this.sessionGroups = [];
         this.chatHistory = [];
         this.selectionTimeout = null;
+        this.promptCollapsed = localStorage.getItem('promptCollapsed') === 'true';
+        this.tagsCollapsed = localStorage.getItem('tagsCollapsed') === 'true';
+        this.promptSaveTimeout = null;
+        this.currentTags = [];
+        this.allTags = [];
         this.init();
     }
 
@@ -37,6 +42,8 @@ class EssayPlatform {
     init() {
         this.setupEventListeners();
         this.setupTheme();
+        this.setupPromptSection();
+        this.setupTagsSection();
         this.updateStats();
         this.setupEditor();
         this.setupResizing();
@@ -51,28 +58,37 @@ class EssayPlatform {
         // Ensure DOM is ready before loading essay
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
-                this.loadEssayFromURL();
+                // Small delay to ensure all elements are initialized
+                setTimeout(() => this.loadEssayFromURL(), 100);
             });
         } else {
-            this.loadEssayFromURL();
+            // Small delay to ensure all elements are initialized
+            setTimeout(() => this.loadEssayFromURL(), 100);
         }
     }
 
     setupEventListeners() {
-        // Theme toggle
-        document.getElementById('theme-toggle').addEventListener('click', () => {
-            this.toggleTheme();
-        });
-
-        // Navigation
-        document.getElementById('load-btn').addEventListener('click', () => {
-            window.location.href = 'home.html';
+        // Settings modal
+        document.getElementById('settings-toggle').addEventListener('click', () => {
+            this.showSettingsModal();
         });
 
         // Version history
         document.getElementById('version-history-btn').addEventListener('click', () => {
             this.showVersionHistory();
         });
+
+        // Initialize resizable modal
+        this.initResizableModal();
+
+        // Zen mode
+        this.isZenMode = false;
+        this.zenStatsVisible = false;
+        this.zenFormatVisible = false;
+        document.getElementById('zen-mode-toggle').addEventListener('click', () => {
+            this.toggleZenMode();
+        });
+        this.initZenModeControls();
 
         // Editor events
         const editor = document.getElementById('editor');
@@ -106,6 +122,19 @@ class EssayPlatform {
         editor.addEventListener('focus', () => {
             this.updateFormatButtons();
             this.updateSelectionStats();
+        });
+
+        // Handle paste events to strip formatting
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            
+            // Get plain text from clipboard
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            
+            // Insert plain text at cursor position
+            if (text) {
+                document.execCommand('insertText', false, text);
+            }
         });
 
         // Global selection change listener for better cross-browser support
@@ -215,6 +244,37 @@ class EssayPlatform {
             this.toggleChatPanel();
         });
 
+        // Prompt section toggle
+        document.getElementById('toggle-prompt').addEventListener('click', () => {
+            this.togglePromptSection();
+        });
+
+        // Prompt header click (also toggles)
+        document.querySelector('.prompt-header').addEventListener('click', (e) => {
+            if (e.target.closest('#toggle-prompt')) return; // Don't double-trigger
+            this.togglePromptSection();
+        });
+
+
+        // Prompt editor events
+        const promptEditor = document.getElementById('prompt-editor');
+        promptEditor.addEventListener('input', () => {
+            this.autoSavePrompt();
+        });
+
+        // Handle paste events in prompt editor to strip formatting
+        promptEditor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            
+            // Get plain text from clipboard
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            
+            // Insert plain text at cursor position
+            if (text) {
+                document.execCommand('insertText', false, text);
+            }
+        });
+
         // AI Tools
         document.getElementById('ai-detector-btn').addEventListener('click', () => {
             this.runAIDetector();
@@ -300,17 +360,643 @@ class EssayPlatform {
     setupTheme() {
         if (this.isDarkMode) {
             document.documentElement.setAttribute('data-theme', 'dark');
-            document.querySelector('#theme-toggle i').className = 'fas fa-sun';
         } else {
             document.documentElement.removeAttribute('data-theme');
-            document.querySelector('#theme-toggle i').className = 'fas fa-moon';
+        }
+        this.updateThemeButtons();
+    }
+
+    updateThemeButtons() {
+        const lightBtn = document.getElementById('light-theme-btn');
+        const darkBtn = document.getElementById('dark-theme-btn');
+
+        if (lightBtn && darkBtn) {
+            lightBtn.classList.toggle('active', !this.isDarkMode);
+            darkBtn.classList.toggle('active', this.isDarkMode);
         }
     }
 
-    toggleTheme() {
-        this.isDarkMode = !this.isDarkMode;
+    toggleTheme(theme) {
+        this.isDarkMode = theme === 'dark';
         localStorage.setItem('darkMode', this.isDarkMode);
         this.setupTheme();
+    }
+
+    setupPromptSection() {
+        const promptSection = document.getElementById('prompt-section');
+        const toggleIcon = document.querySelector('#toggle-prompt i');
+        const promptEditor = document.getElementById('prompt-editor');
+        
+        console.log('Setting up prompt section:', {
+            promptSection: !!promptSection,
+            toggleIcon: !!toggleIcon,
+            promptEditor: !!promptEditor,
+            collapsed: this.promptCollapsed
+        });
+        
+        if (promptSection && this.promptCollapsed) {
+            promptSection.classList.add('collapsed');
+            if (toggleIcon) {
+                toggleIcon.style.transform = 'rotate(180deg)';
+            }
+        }
+    }
+
+    setupTagsSection() {
+        const tagsInput = document.getElementById('header-tags-input');
+        const tagsWrapper = document.getElementById('header-tags-input-wrapper');
+        const tagsSuggestions = document.getElementById('header-tags-suggestions');
+        
+        console.log('Setting up header tags:', {
+            tagsInput: !!tagsInput,
+            tagsWrapper: !!tagsWrapper,
+            tagsSuggestions: !!tagsSuggestions
+        });
+
+        // Load available tags
+        this.loadTags();
+
+        // Setup tags input if available
+        if (tagsInput) {
+            tagsInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    this.addTag(tagsInput.value.trim());
+                    tagsInput.value = '';
+                    tagsSuggestions.style.display = 'none';
+                } else if (e.key === 'Backspace' && tagsInput.value === '' && this.currentTags.length > 0) {
+                    this.removeTag(this.currentTags.length - 1);
+                }
+            });
+
+            tagsInput.addEventListener('input', (e) => {
+                this.showTagSuggestions(e.target.value, 'header-tags-suggestions');
+            });
+
+            tagsInput.addEventListener('blur', () => {
+                setTimeout(() => {
+                    tagsSuggestions.style.display = 'none';
+                }, 200);
+            });
+        }
+    }
+
+    togglePromptSection() {
+        const promptSection = document.getElementById('prompt-section');
+        const toggleIcon = document.querySelector('#toggle-prompt i');
+        
+        this.promptCollapsed = !this.promptCollapsed;
+        localStorage.setItem('promptCollapsed', this.promptCollapsed);
+        
+        if (this.promptCollapsed) {
+            promptSection.classList.add('collapsed');
+            toggleIcon.style.transform = 'rotate(180deg)';
+        } else {
+            promptSection.classList.remove('collapsed');
+            toggleIcon.style.transform = 'rotate(0deg)';
+        }
+    }
+
+
+    autoSavePrompt() {
+        clearTimeout(this.promptSaveTimeout);
+        this.promptSaveTimeout = setTimeout(() => {
+            if (this.currentEssayId) {
+                this.saveEssay(true); // Silent save that includes prompt
+            }
+        }, 1000); // Save 1 second after user stops typing in prompt
+
+        // Also schedule version save for prompt changes
+        this.scheduleVersionSave();
+    }
+
+    async loadTags() {
+        try {
+            const response = await fetch('/api/tags');
+            this.allTags = await response.json();
+        } catch (error) {
+            console.error('Failed to load tags:', error);
+            this.allTags = [];
+        }
+    }
+
+    addTag(tagName) {
+        if (!tagName || this.currentTags.includes(tagName)) return;
+        
+        this.currentTags.push(tagName);
+        this.renderTags();
+        this.saveEssay(true); // Auto-save tags
+    }
+
+    removeTag(index) {
+        this.currentTags.splice(index, 1);
+        this.renderTags();
+        this.saveEssay(true); // Auto-save tags
+    }
+
+    renderTags() {
+        const tagsWrapper = document.getElementById('header-tags-input-wrapper');
+        const tagsInput = document.getElementById('header-tags-input');
+        
+        if (!tagsWrapper || !tagsInput) return;
+        
+        // Remove existing tag chips
+        tagsWrapper.querySelectorAll('.tag-chip').forEach(chip => chip.remove());
+        
+        // Add current tags
+        this.currentTags.forEach((tag, index) => {
+            const tagChip = document.createElement('div');
+            tagChip.className = 'tag-chip';
+            tagChip.innerHTML = `
+                ${tag}
+                <button type="button" class="remove-tag" onclick="platform.removeTag(${index})">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            tagsWrapper.insertBefore(tagChip, tagsInput);
+        });
+    }
+
+    showTagSuggestions(input, suggestionsId) {
+        const tagsSuggestions = document.getElementById(suggestionsId);
+        
+        if (!input.trim()) {
+            tagsSuggestions.style.display = 'none';
+            return;
+        }
+
+        const suggestions = this.allTags.filter(tag => 
+            tag.toLowerCase().includes(input.toLowerCase()) && 
+            !this.currentTags.includes(tag)
+        ).slice(0, 5);
+
+        if (suggestions.length === 0) {
+            tagsSuggestions.style.display = 'none';
+            return;
+        }
+
+        tagsSuggestions.innerHTML = suggestions.map(tag => 
+            `<div class="tag-suggestion" onclick="platform.selectTagSuggestion('${tag}')">${tag}</div>`
+        ).join('');
+        
+        tagsSuggestions.style.display = 'block';
+    }
+
+    selectTagSuggestion(tag) {
+        this.addTag(tag);
+        document.getElementById('header-tags-input').value = '';
+        document.getElementById('header-tags-suggestions').style.display = 'none';
+    }
+
+    // HTML-aware diff algorithm
+    stripHtmlForDiff(html) {
+        // Create a temporary div to parse HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        return tempDiv.textContent || tempDiv.innerText || '';
+    }
+
+    // Simple word-based diff algorithm
+    computeWordDiff(oldText, newText) {
+        const oldWords = oldText.split(/(\s+)/);
+        const newWords = newText.split(/(\s+)/);
+        
+        // Use dynamic programming to find the longest common subsequence
+        const matrix = [];
+        for (let i = 0; i <= oldWords.length; i++) {
+            matrix[i] = [];
+            for (let j = 0; j <= newWords.length; j++) {
+                if (i === 0) matrix[i][j] = j;
+                else if (j === 0) matrix[i][j] = i;
+                else if (oldWords[i - 1] === newWords[j - 1]) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = 1 + Math.min(
+                        matrix[i - 1][j],    // deletion
+                        matrix[i][j - 1],    // insertion
+                        matrix[i - 1][j - 1] // substitution
+                    );
+                }
+            }
+        }
+
+        // Backtrack to build the diff
+        const diff = [];
+        let i = oldWords.length, j = newWords.length;
+        
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && oldWords[i - 1] === newWords[j - 1]) {
+                diff.unshift({ type: 'equal', content: oldWords[i - 1] });
+                i--; j--;
+            } else if (i > 0 && (j === 0 || matrix[i - 1][j] <= matrix[i][j - 1])) {
+                diff.unshift({ type: 'delete', content: oldWords[i - 1] });
+                i--;
+            } else {
+                diff.unshift({ type: 'insert', content: newWords[j - 1] });
+                j--;
+            }
+        }
+        
+        return diff;
+    }
+
+    // HTML-aware diff that preserves structure
+    computeHtmlDiff(oldHtml, newHtml) {
+        // Strip HTML for text comparison but keep track of structure
+        const oldText = this.stripHtmlForDiff(oldHtml);
+        const newText = this.stripHtmlForDiff(newHtml);
+        
+        if (oldText === newText) {
+            return newHtml; // No changes
+        }
+        
+        const diff = this.computeWordDiff(oldText, newText);
+        
+        // Build highlighted HTML
+        let result = '';
+        for (const item of diff) {
+            if (item.type === 'equal') {
+                result += this.escapeHtml(item.content);
+            } else if (item.type === 'insert') {
+                result += `<span class="diff-added">${this.escapeHtml(item.content)}</span>`;
+            } else if (item.type === 'delete') {
+                result += `<span class="diff-removed">${this.escapeHtml(item.content)}</span>`;
+            }
+        }
+        
+        // Try to preserve some HTML structure by wrapping in paragraphs
+        if (newHtml.includes('<p>') || oldHtml.includes('<p>')) {
+            result = '<p>' + result.replace(/\n\n+/g, '</p><p>') + '</p>';
+        }
+        
+        return result;
+    }
+
+    // Advanced HTML diff that preserves formatting
+    computeAdvancedHtmlDiff(oldHtml, newHtml) {
+        if (oldHtml === newHtml) {
+            return newHtml;
+        }
+
+        // Try to preserve HTML structure by working with HTML blocks
+        return this.computeHtmlBlockDiff(oldHtml, newHtml);
+    }
+
+    // HTML-aware diff that preserves block-level formatting
+    computeHtmlBlockDiff(oldHtml, newHtml) {
+        // Parse HTML into meaningful blocks (paragraphs, headings, etc.)
+        const oldBlocks = this.parseHtmlBlocks(oldHtml);
+        const newBlocks = this.parseHtmlBlocks(newHtml);
+
+        // Compare blocks and highlight differences
+        const blockDiff = this.computeBlockDiff(oldBlocks, newBlocks);
+        
+        // Reconstruct HTML with diff highlighting
+        return this.reconstructHtmlFromBlocks(blockDiff);
+    }
+
+    // Parse HTML into meaningful blocks while preserving structure
+    parseHtmlBlocks(html) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        
+        const blocks = [];
+        const children = Array.from(tempDiv.childNodes);
+        
+        for (const child of children) {
+            if (child.nodeType === Node.ELEMENT_NODE) {
+                // This is an HTML element (p, h1, div, etc.)
+                blocks.push({
+                    type: 'element',
+                    tagName: child.tagName.toLowerCase(),
+                    innerHTML: child.innerHTML,
+                    outerHTML: child.outerHTML,
+                    textContent: child.textContent || child.innerText || ''
+                });
+            } else if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+                // This is text outside of any element
+                blocks.push({
+                    type: 'text',
+                    content: child.textContent,
+                    textContent: child.textContent
+                });
+            }
+        }
+        
+        return blocks;
+    }
+
+    // Compare blocks using content similarity
+    computeBlockDiff(oldBlocks, newBlocks) {
+        const diff = [];
+        let oldIndex = 0;
+        let newIndex = 0;
+        
+        while (oldIndex < oldBlocks.length || newIndex < newBlocks.length) {
+            if (oldIndex >= oldBlocks.length) {
+                // Remaining blocks are additions
+                diff.push({ type: 'insert', block: newBlocks[newIndex] });
+                newIndex++;
+            } else if (newIndex >= newBlocks.length) {
+                // Remaining blocks are deletions
+                diff.push({ type: 'delete', block: oldBlocks[oldIndex] });
+                oldIndex++;
+            } else {
+                const oldBlock = oldBlocks[oldIndex];
+                const newBlock = newBlocks[newIndex];
+                
+                // Check if blocks are similar
+                if (this.blocksAreSimilar(oldBlock, newBlock)) {
+                    // Blocks are similar, check for text differences within
+                    if (oldBlock.textContent === newBlock.textContent) {
+                        diff.push({ type: 'equal', block: newBlock });
+                    } else {
+                        // Same structure but different content - highlight text changes
+                        const modifiedBlock = this.highlightTextChangesInBlock(oldBlock, newBlock);
+                        diff.push({ type: 'modified', block: modifiedBlock });
+                    }
+                    oldIndex++;
+                    newIndex++;
+                } else {
+                    // Try to find if this old block appears later in new blocks
+                    const laterMatch = this.findBlockLater(oldBlock, newBlocks, newIndex);
+                    if (laterMatch >= 0) {
+                        // Old block moved or new blocks inserted before it
+                        diff.push({ type: 'insert', block: newBlocks[newIndex] });
+                        newIndex++;
+                    } else {
+                        // Old block was deleted or modified beyond recognition
+                        diff.push({ type: 'delete', block: oldBlocks[oldIndex] });
+                        oldIndex++;
+                    }
+                }
+            }
+        }
+        
+        return diff;
+    }
+
+    // Check if two blocks are structurally similar
+    blocksAreSimilar(block1, block2) {
+        if (block1.type !== block2.type) return false;
+        if (block1.type === 'element') {
+            return block1.tagName === block2.tagName;
+        }
+        return true; // Text blocks are considered similar
+    }
+
+    // Find if a block appears later in the array
+    findBlockLater(targetBlock, blocks, startIndex) {
+        for (let i = startIndex; i < blocks.length; i++) {
+            if (this.blocksAreSimilar(targetBlock, blocks[i]) && 
+                targetBlock.textContent === blocks[i].textContent) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // Highlight text changes within a block while preserving structure
+    highlightTextChangesInBlock(oldBlock, newBlock) {
+        if (oldBlock.type === 'text') {
+            // Simple text diff
+            const textDiff = this.computeCharacterDiff(oldBlock.content, newBlock.content);
+            let result = '';
+            for (const item of textDiff) {
+                if (item.type === 'equal') {
+                    result += this.escapeHtml(item.content);
+                } else if (item.type === 'insert') {
+                    result += `<span class="diff-added">${this.escapeHtml(item.content)}</span>`;
+                } else if (item.type === 'delete') {
+                    result += `<span class="diff-removed">${this.escapeHtml(item.content)}</span>`;
+                }
+            }
+            return { ...newBlock, content: result };
+        } else {
+            // Element with inner content changes
+            const oldText = oldBlock.textContent;
+            const newText = newBlock.textContent;
+            
+            const textDiff = this.computeCharacterDiff(oldText, newText);
+            let diffText = '';
+            for (const item of textDiff) {
+                if (item.type === 'equal') {
+                    diffText += item.content;
+                } else if (item.type === 'insert') {
+                    diffText += `<span class="diff-added">${this.escapeHtml(item.content)}</span>`;
+                } else if (item.type === 'delete') {
+                    diffText += `<span class="diff-removed">${this.escapeHtml(item.content)}</span>`;
+                }
+            }
+            
+            // Create new block with highlighted content
+            return {
+                ...newBlock,
+                innerHTML: diffText,
+                outerHTML: `<${newBlock.tagName}>${diffText}</${newBlock.tagName}>`
+            };
+        }
+    }
+
+    // Reconstruct HTML from diff blocks
+    reconstructHtmlFromBlocks(blockDiff) {
+        let result = '';
+        
+        for (const diffItem of blockDiff) {
+            const block = diffItem.block;
+            
+            if (diffItem.type === 'equal' || diffItem.type === 'modified') {
+                if (block.type === 'element') {
+                    result += block.outerHTML;
+                } else {
+                    result += block.content;
+                }
+            } else if (diffItem.type === 'insert') {
+                if (block.type === 'element') {
+                    const wrappedContent = `<span class="diff-added">${block.innerHTML}</span>`;
+                    result += `<${block.tagName}>${wrappedContent}</${block.tagName}>`;
+                } else {
+                    result += `<span class="diff-added">${this.escapeHtml(block.content)}</span>`;
+                }
+            } else if (diffItem.type === 'delete') {
+                if (block.type === 'element') {
+                    const wrappedContent = `<span class="diff-removed">${block.innerHTML}</span>`;
+                    result += `<${block.tagName}>${wrappedContent}</${block.tagName}>`;
+                } else {
+                    result += `<span class="diff-removed">${this.escapeHtml(block.content)}</span>`;
+                }
+            }
+        }
+        
+        return result;
+    }
+
+    // Character-level diff for more precise results
+    computeCharacterDiff(oldText, newText) {
+        const oldChars = oldText.split('');
+        const newChars = newText.split('');
+        
+        // Use Myers algorithm for better diff quality
+        return this.myersDiff(oldChars, newChars);
+    }
+
+    // Myers diff algorithm - more accurate than simple DP
+    myersDiff(a, b) {
+        const N = a.length;
+        const M = b.length;
+        const MAX = N + M;
+        
+        const v = {};
+        const trace = [];
+        
+        v[1] = 0;
+        
+        for (let d = 0; d <= MAX; d++) {
+            trace.push({ ...v });
+            
+            for (let k = -d; k <= d; k += 2) {
+                let x;
+                if (k === -d || (k !== d && v[k - 1] < v[k + 1])) {
+                    x = v[k + 1];
+                } else {
+                    x = v[k - 1] + 1;
+                }
+                
+                let y = x - k;
+                
+                while (x < N && y < M && a[x] === b[y]) {
+                    x++;
+                    y++;
+                }
+                
+                v[k] = x;
+                
+                if (x >= N && y >= M) {
+                    return this.buildDiffFromTrace(a, b, trace, d);
+                }
+            }
+        }
+        
+        return [{ type: 'delete', content: a.join('') }, { type: 'insert', content: b.join('') }];
+    }
+
+    buildDiffFromTrace(a, b, trace, d) {
+        const diff = [];
+        let x = a.length;
+        let y = b.length;
+        
+        for (let t = d; t >= 0; t--) {
+            const v = trace[t];
+            const k = x - y;
+            
+            let prevK;
+            if (k === -t || (k !== t && v[k - 1] < v[k + 1])) {
+                prevK = k + 1;
+            } else {
+                prevK = k - 1;
+            }
+            
+            const prevX = v[prevK];
+            const prevY = prevX - prevK;
+            
+            // Add common suffix
+            while (x > prevX && y > prevY) {
+                diff.unshift({ type: 'equal', content: a[x - 1] });
+                x--;
+                y--;
+            }
+            
+            // Add deletion or insertion
+            if (t > 0) {
+                if (x > prevX) {
+                    diff.unshift({ type: 'delete', content: a[x - 1] });
+                    x--;
+                } else {
+                    diff.unshift({ type: 'insert', content: b[y - 1] });
+                    y--;
+                }
+            }
+        }
+        
+        // Merge consecutive items of the same type
+        return this.mergeDiffItems(diff);
+    }
+
+    mergeDiffItems(diff) {
+        const merged = [];
+        let current = null;
+        
+        for (const item of diff) {
+            if (current && current.type === item.type) {
+                current.content += item.content;
+            } else {
+                if (current) merged.push(current);
+                current = { ...item };
+            }
+        }
+        
+        if (current) merged.push(current);
+        return merged;
+    }
+
+    splitIntoSentences(html) {
+        // Simple sentence splitting that preserves HTML
+        return html.split(/(?<=[.!?])\s+/)
+                  .filter(s => s.trim().length > 0)
+                  .map(s => s.trim());
+    }
+
+    computeSequenceDiff(oldSeq, newSeq) {
+        const matrix = [];
+        for (let i = 0; i <= oldSeq.length; i++) {
+            matrix[i] = [];
+            for (let j = 0; j <= newSeq.length; j++) {
+                if (i === 0) matrix[i][j] = j;
+                else if (j === 0) matrix[i][j] = i;
+                else if (this.stripHtmlForDiff(oldSeq[i - 1]) === this.stripHtmlForDiff(newSeq[j - 1])) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = 1 + Math.min(
+                        matrix[i - 1][j],
+                        matrix[i][j - 1],
+                        matrix[i - 1][j - 1]
+                    );
+                }
+            }
+        }
+
+        const diff = [];
+        let i = oldSeq.length, j = newSeq.length;
+        
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && this.stripHtmlForDiff(oldSeq[i - 1]) === this.stripHtmlForDiff(newSeq[j - 1])) {
+                diff.unshift({ type: 'equal', content: oldSeq[i - 1] + ' ' });
+                i--; j--;
+            } else if (i > 0 && (j === 0 || matrix[i - 1][j] <= matrix[i][j - 1])) {
+                diff.unshift({ type: 'delete', content: oldSeq[i - 1] + ' ' });
+                i--;
+            } else {
+                diff.unshift({ type: 'insert', content: newSeq[j - 1] + ' ' });
+                j--;
+            }
+        }
+        
+        return diff;
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    scheduleVersionSave() {
+        clearTimeout(this.versionSaveTimeout);
+        this.versionSaveTimeout = setTimeout(() => {
+            if (this.currentEssayId && this.hasVersionChanges()) {
+                this.saveVersionSnapshot();
+            }
+        }, 5000); // 5 seconds after last change
     }
 
     setupEditor() {
@@ -331,19 +1017,33 @@ class EssayPlatform {
         editor.addEventListener('input', autoSave);
         titleInput.addEventListener('input', autoSave);
 
-        // Version history - save snapshot after 5 seconds of inactivity
-        const scheduleVersionSave = () => {
-            clearTimeout(this.versionSaveTimeout);
-            this.versionSaveTimeout = setTimeout(() => {
-                if (this.currentEssayId && this.hasVersionChanges()) {
-                    this.saveVersionSnapshot();
-                }
-            }, 5000); // 5 seconds after last change
-        };
-
         // Schedule version save on content changes
-        editor.addEventListener('input', scheduleVersionSave);
-        titleInput.addEventListener('input', scheduleVersionSave);
+        editor.addEventListener('input', () => this.scheduleVersionSave());
+        titleInput.addEventListener('input', () => this.scheduleVersionSave());
+
+        // Handle paste events in title input to strip formatting
+        titleInput.addEventListener('paste', (e) => {
+            e.preventDefault();
+            
+            // Get plain text from clipboard
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            
+            // Insert plain text at cursor position (for input elements, we set the value)
+            if (text) {
+                const start = titleInput.selectionStart;
+                const end = titleInput.selectionEnd;
+                const currentValue = titleInput.value;
+                
+                // Replace selected text with plain text
+                titleInput.value = currentValue.substring(0, start) + text + currentValue.substring(end);
+                
+                // Set cursor position after inserted text
+                titleInput.selectionStart = titleInput.selectionEnd = start + text.length;
+                
+                // Trigger input event to update autosave
+                titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        });
 
         // Auto-save before page unload
         window.addEventListener('beforeunload', (e) => {
@@ -374,6 +1074,9 @@ class EssayPlatform {
         document.getElementById('char-count').textContent = characters;
         document.getElementById('sentence-count').textContent = sentences;
         document.getElementById('paragraph-count').textContent = paragraphs;
+
+        // Update Zen mode stats if visible
+        this.updateZenStats();
     }
 
     updateSelectionStats() {
@@ -501,6 +1204,9 @@ class EssayPlatform {
 
         // Update heading select dropdown
         this.updateHeadingSelect();
+
+        // Update Zen mode format buttons if visible
+        this.updateZenFormatButtons();
     }
 
     updateHeadingSelect() {
@@ -536,6 +1242,8 @@ class EssayPlatform {
     async saveEssay(silent = false) {
         const title = document.getElementById('essay-title').value || 'Untitled Essay';
         const content = document.getElementById('editor').innerHTML;
+        const prompt = document.getElementById('prompt-editor').innerHTML || '';
+        const tags = this.currentTags;
 
         this.isSaving = true;
         this.updateAutosaveStatus('saving');
@@ -549,7 +1257,7 @@ class EssayPlatform {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ title, content }),
+                body: JSON.stringify({ title, content, prompt, tags }),
             });
 
             const result = await response.json();
@@ -557,7 +1265,7 @@ class EssayPlatform {
             if (!this.currentEssayId) {
                 this.currentEssayId = result.id;
                 // Save initial version
-                this.lastVersionContent = { title, content };
+                this.lastVersionContent = { title, content, prompt, tags: tags.join(',') };
                 // Update URL to include essay ID
                 const newUrl = new URL(window.location);
                 newUrl.searchParams.set('id', result.id);
@@ -569,7 +1277,9 @@ class EssayPlatform {
             // Update last saved content for change detection
             this.lastSavedContent = {
                 title: title,
-                content: content
+                content: content,
+                prompt: prompt,
+                tags: tags.join(',')
             };
         } catch (error) {
             console.error('Save error:', error);
@@ -586,15 +1296,18 @@ class EssayPlatform {
         if (!this.lastSavedContent) {
             const title = document.getElementById('essay-title').value || '';
             const content = document.getElementById('editor').innerHTML || '';
-            return title.trim() !== '' || content.trim() !== '';
+            const prompt = document.getElementById('prompt-editor').innerHTML || '';
+            return title.trim() !== '' || content.trim() !== '' || prompt.trim() !== '';
         }
 
         const currentTitle = document.getElementById('essay-title').value || 'Untitled Essay';
         const currentContent = document.getElementById('editor').innerHTML;
+        const currentPrompt = document.getElementById('prompt-editor').innerHTML || '';
 
         return (
             currentTitle !== this.lastSavedContent.title ||
-            currentContent !== this.lastSavedContent.content
+            currentContent !== this.lastSavedContent.content ||
+            currentPrompt !== (this.lastSavedContent.prompt || '')
         );
     }
 
@@ -605,10 +1318,12 @@ class EssayPlatform {
 
         const currentTitle = document.getElementById('essay-title').value || 'Untitled Essay';
         const currentContent = document.getElementById('editor').innerHTML;
+        const currentPrompt = document.getElementById('prompt-editor').innerHTML || '';
 
         return (
             currentTitle !== this.lastVersionContent.title ||
-            currentContent !== this.lastVersionContent.content
+            currentContent !== this.lastVersionContent.content ||
+            currentPrompt !== (this.lastVersionContent.prompt || '')
         );
     }
 
@@ -655,6 +1370,20 @@ class EssayPlatform {
 
         const title = document.getElementById('essay-title').value || 'Untitled Essay';
         const content = document.getElementById('editor').innerHTML;
+        const prompt = document.getElementById('prompt-editor').innerHTML || '';
+        const tags = this.currentTags;
+
+        // Check if this is only a whitespace change
+        if (this.lastVersionContent && 
+            this.shouldMergeWithPrevious(content, this.lastVersionContent.content) &&
+            title === this.lastVersionContent.title &&
+            prompt === this.lastVersionContent.prompt &&
+            tags.join(',') === this.lastVersionContent.tags) {
+            console.log('Skipping version save - only whitespace changes detected');
+            // Update the last version content to current content to prevent repeated checks
+            this.lastVersionContent = { title, content, prompt, tags: tags.join(',') };
+            return;
+        }
 
         try {
             const response = await fetch(`/api/essays/${this.currentEssayId}/versions`, {
@@ -665,12 +1394,14 @@ class EssayPlatform {
                 body: JSON.stringify({
                     title,
                     content,
-                    changes_only: this.calculateChanges(content)
+                    prompt,
+                    tags,
+                    changes_only: this.calculateChanges(content, prompt)
                 }),
             });
 
             if (response.ok) {
-                this.lastVersionContent = { title, content };
+                this.lastVersionContent = { title, content, prompt, tags: tags.join(',') };
                 console.log('Version snapshot saved');
                 // Show version snapshot status
                 this.updateAutosaveStatus('version-saved');
@@ -680,19 +1411,32 @@ class EssayPlatform {
         }
     }
 
-    calculateChanges(newContent) {
+    calculateChanges(newContent, newPrompt = '') {
         if (!this.lastVersionContent) {
             return 'Initial version';
         }
 
-        const oldWords = this.lastVersionContent.content.replace(/<[^>]*>/g, '').split(/\s+/).length;
-        const newWords = newContent.replace(/<[^>]*>/g, '').split(/\s+/).length;
-        const wordDiff = newWords - oldWords;
+        const oldContentWords = this.lastVersionContent.content.replace(/<[^>]*>/g, '').split(/\s+/).filter(w => w.length > 0).length;
+        const newContentWords = newContent.replace(/<[^>]*>/g, '').split(/\s+/).filter(w => w.length > 0).length;
+        const contentWordDiff = newContentWords - oldContentWords;
 
-        if (wordDiff > 0) {
-            return `+${wordDiff} words`;
-        } else if (wordDiff < 0) {
-            return `${wordDiff} words`;
+        const oldPromptWords = (this.lastVersionContent.prompt || '').replace(/<[^>]*>/g, '').split(/\s+/).filter(w => w.length > 0).length;
+        const newPromptWords = newPrompt.replace(/<[^>]*>/g, '').split(/\s+/).filter(w => w.length > 0).length;
+        const promptWordDiff = newPromptWords - oldPromptWords;
+
+        const totalWordDiff = contentWordDiff + promptWordDiff;
+
+        // Check if prompt changed
+        const promptChanged = (this.lastVersionContent.prompt || '') !== newPrompt;
+        
+        if (promptChanged && totalWordDiff !== 0) {
+            return `Prompt updated, ${totalWordDiff > 0 ? '+' : ''}${totalWordDiff} words`;
+        } else if (promptChanged) {
+            return 'Prompt updated';
+        } else if (totalWordDiff > 0) {
+            return `+${totalWordDiff} words`;
+        } else if (totalWordDiff < 0) {
+            return `${totalWordDiff} words`;
         } else {
             return 'Content modified';
         }
@@ -713,6 +1457,7 @@ class EssayPlatform {
         this.versions = [];
 
         document.getElementById('version-history-modal').style.display = 'block';
+        console.log('Version history modal opened');
         await this.loadVersionHistory();
         this.setupVersionScrolling();
     }
@@ -722,11 +1467,306 @@ class EssayPlatform {
         this.selectedVersion = null;
         document.getElementById('restore-version-btn').disabled = true;
 
+        // Reset modal size and position
+        const modal = document.querySelector('.resizable-modal');
+        if (modal) {
+            modal.classList.remove('resizing');
+            modal.style.width = '';
+            modal.style.height = '';
+            modal.style.left = '';
+            modal.style.top = '';
+            modal.style.maxWidth = '';
+            modal.style.maxHeight = '';
+            modal.style.transform = '';
+        }
+
         // Clean up scroll listener
         const versionsList = document.getElementById('versions-list');
         if (versionsList) {
             versionsList.removeEventListener('scroll', this.handleVersionScroll);
         }
+    }
+
+    showSettingsModal() {
+        document.getElementById('settings-modal').style.display = 'block';
+        this.updateThemeButtons();
+        this.initSettingsListeners();
+    }
+
+    hideSettingsModal() {
+        document.getElementById('settings-modal').style.display = 'none';
+    }
+
+    initSettingsListeners() {
+        // Close modal
+        const closeBtn = document.getElementById('settings-modal-close');
+        if (closeBtn && !closeBtn.hasSettingsListener) {
+            closeBtn.addEventListener('click', () => this.hideSettingsModal());
+            closeBtn.hasSettingsListener = true;
+        }
+
+        // Modal background click
+        const modal = document.getElementById('settings-modal');
+        if (modal && !modal.hasSettingsListener) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    this.hideSettingsModal();
+                }
+            });
+            modal.hasSettingsListener = true;
+        }
+
+        // Theme buttons
+        const lightBtn = document.getElementById('light-theme-btn');
+        const darkBtn = document.getElementById('dark-theme-btn');
+
+        if (lightBtn && !lightBtn.hasSettingsListener) {
+            lightBtn.addEventListener('click', () => this.toggleTheme('light'));
+            lightBtn.hasSettingsListener = true;
+        }
+
+        if (darkBtn && !darkBtn.hasSettingsListener) {
+            darkBtn.addEventListener('click', () => this.toggleTheme('dark'));
+            darkBtn.hasSettingsListener = true;
+        }
+    }
+
+    initResizableModal() {
+        const modal = document.querySelector('.resizable-modal');
+        if (!modal) return;
+
+        const handles = modal.querySelectorAll('.resize-handle');
+        let isResizing = false;
+        let startX, startY, startWidth, startHeight, startLeft, startTop;
+        let currentHandle = null;
+
+        handles.forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                isResizing = true;
+                currentHandle = handle;
+                startX = e.clientX;
+                startY = e.clientY;
+
+                const rect = modal.getBoundingClientRect();
+                startWidth = rect.width;
+                startHeight = rect.height;
+                startLeft = rect.left;
+                startTop = rect.top;
+
+                modal.classList.add('resizing');
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor = getComputedStyle(handle).cursor;
+            });
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing || !currentHandle) return;
+
+            e.preventDefault();
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+
+            const minWidth = 800;
+            const minHeight = 600;
+            const maxWidth = window.innerWidth * 0.98;
+            const maxHeight = window.innerHeight * 0.95;
+
+            let newWidth = startWidth;
+            let newHeight = startHeight;
+            let newLeft = startLeft;
+            let newTop = startTop;
+
+            // Handle resizing based on which handle is being dragged
+            if (currentHandle.classList.contains('e')) {
+                newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + dx));
+            } else if (currentHandle.classList.contains('w')) {
+                newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth - dx));
+                newLeft = startLeft + (startWidth - newWidth);
+            } else if (currentHandle.classList.contains('s')) {
+                newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + dy));
+            } else if (currentHandle.classList.contains('n')) {
+                newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight - dy));
+                newTop = startTop + (startHeight - newHeight);
+            } else if (currentHandle.classList.contains('se')) {
+                newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + dx));
+                newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + dy));
+            } else if (currentHandle.classList.contains('sw')) {
+                newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth - dx));
+                newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + dy));
+                newLeft = startLeft + (startWidth - newWidth);
+            } else if (currentHandle.classList.contains('ne')) {
+                newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + dx));
+                newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight - dy));
+                newTop = startTop + (startHeight - newHeight);
+            } else if (currentHandle.classList.contains('nw')) {
+                newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth - dx));
+                newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight - dy));
+                newLeft = startLeft + (startWidth - newWidth);
+                newTop = startTop + (startHeight - newHeight);
+            }
+
+            // Keep modal centered by adjusting position
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+
+            modal.style.width = newWidth + 'px';
+            modal.style.height = newHeight + 'px';
+            modal.style.left = (centerX - newWidth / 2) + 'px';
+            modal.style.top = (centerY - newHeight / 2) + 'px';
+            modal.style.transform = 'none';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                currentHandle = null;
+                modal.classList.remove('resizing');
+                document.body.style.userSelect = '';
+                document.body.style.cursor = '';
+            }
+        });
+    }
+
+    toggleZenMode() {
+        this.isZenMode = !this.isZenMode;
+
+        const body = document.body;
+        const zenHeader = document.getElementById('zen-header');
+        const zenModeBtn = document.getElementById('zen-mode-toggle');
+
+        if (this.isZenMode) {
+            body.classList.add('zen-mode-entering');
+            setTimeout(() => {
+                body.classList.remove('zen-mode-entering');
+                body.classList.add('zen-mode');
+            }, 300);
+
+            zenHeader.style.display = 'flex';
+            zenModeBtn.classList.add('active');
+            zenModeBtn.querySelector('i').className = 'fas fa-expand-arrows-alt';
+            zenModeBtn.title = 'Exit Zen Mode';
+
+            // Focus on editor
+            document.getElementById('editor').focus();
+        } else {
+            body.classList.add('zen-mode-exiting');
+            body.classList.remove('zen-mode');
+            setTimeout(() => {
+                body.classList.remove('zen-mode-exiting');
+            }, 300);
+
+            zenHeader.style.display = 'none';
+            document.getElementById('zen-stats-group').style.display = 'none';
+            document.getElementById('zen-format-group').style.display = 'none';
+            this.zenStatsVisible = false;
+            this.zenFormatVisible = false;
+
+            zenModeBtn.classList.remove('active');
+            zenModeBtn.querySelector('i').className = 'fas fa-leaf';
+            zenModeBtn.title = 'Zen Mode';
+        }
+    }
+
+    initZenModeControls() {
+        // Stats toggle
+        document.getElementById('zen-stats-toggle').addEventListener('click', () => {
+            this.zenStatsVisible = !this.zenStatsVisible;
+            const group = document.getElementById('zen-stats-group');
+            const btn = document.getElementById('zen-stats-toggle');
+
+            if (this.zenStatsVisible) {
+                group.style.display = 'flex';
+                btn.classList.add('active');
+                this.updateZenStats();
+            } else {
+                group.style.display = 'none';
+                btn.classList.remove('active');
+            }
+        });
+
+        // Format toggle
+        document.getElementById('zen-format-toggle').addEventListener('click', () => {
+            this.zenFormatVisible = !this.zenFormatVisible;
+            const group = document.getElementById('zen-format-group');
+            const btn = document.getElementById('zen-format-toggle');
+
+            if (this.zenFormatVisible) {
+                group.style.display = 'flex';
+                btn.classList.add('active');
+                this.initZenFormatControls();
+            } else {
+                group.style.display = 'none';
+                btn.classList.remove('active');
+            }
+        });
+
+        // Exit zen mode
+        document.getElementById('zen-exit').addEventListener('click', () => {
+            this.toggleZenMode();
+        });
+
+        // ESC key to exit zen mode
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.isZenMode) {
+                this.toggleZenMode();
+            }
+        });
+    }
+
+    updateZenStats() {
+        if (!this.zenStatsVisible) return;
+
+        const editor = document.getElementById('editor');
+        const text = editor.innerText || '';
+
+        const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+        const chars = text.length;
+        const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0).length;
+        const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
+
+        document.getElementById('zen-word-count').textContent = words;
+        document.getElementById('zen-char-count').textContent = chars;
+        document.getElementById('zen-sentence-count').textContent = sentences;
+        document.getElementById('zen-paragraph-count').textContent = paragraphs;
+    }
+
+    initZenFormatControls() {
+        // Format buttons
+        document.querySelectorAll('.zen-format-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const command = btn.getAttribute('data-command');
+                document.execCommand(command, false, null);
+                this.updateZenFormatButtons();
+            });
+        });
+
+        // Heading select
+        document.getElementById('zen-heading-select').addEventListener('change', (e) => {
+            const value = e.target.value;
+            if (value) {
+                document.execCommand('formatBlock', false, value);
+            } else {
+                document.execCommand('formatBlock', false, 'div');
+            }
+        });
+
+        this.updateZenFormatButtons();
+    }
+
+    updateZenFormatButtons() {
+        if (!this.zenFormatVisible) return;
+
+        document.querySelectorAll('.zen-format-btn').forEach(btn => {
+            const command = btn.getAttribute('data-command');
+            if (document.queryCommandState(command)) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
     }
 
     setupVersionScrolling() {
@@ -1020,16 +2060,39 @@ class EssayPlatform {
             // Show current version as-is with full HTML formatting
             previewContent.innerHTML = version.content;
         } else {
-            // Show the version content with full HTML formatting preserved
-            // For now, we'll show the version content directly to preserve formatting
-            // TODO: Implement HTML-aware diff highlighting in the future
-            previewContent.innerHTML = version.content;
+            // Show the version content with diff highlighting
+            const currentContent = document.getElementById('editor').innerHTML;
+            const versionContent = version.content;
             
-            // Add a subtle indicator that this is a different version
-            const versionIndicator = document.createElement('div');
-            versionIndicator.className = 'version-indicator';
-            versionIndicator.innerHTML = '<small><em>Viewing historical version</em></small>';
-            previewContent.insertBefore(versionIndicator, previewContent.firstChild);
+            // Find the previous version (chronologically earlier) to compare against
+            // This will show what changed FROM the previous version TO this version
+            const allVersions = [
+                {
+                    id: 'current',
+                    content: currentContent,
+                    created_at: new Date().toISOString()
+                },
+                ...this.versions
+            ];
+            
+            const currentIndex = allVersions.findIndex(v => v.id === version.id);
+            const previousVersion = currentIndex < allVersions.length - 1 ? allVersions[currentIndex + 1] : null;
+            
+            let diffContent;
+            
+            if (previousVersion) {
+                // Compare the previous version with this version
+                // This will show:
+                // - Green: text that was added in this version
+                // - Red strikethrough: text that was deleted from previous to this version
+                diffContent = this.computeAdvancedHtmlDiff(previousVersion.content, versionContent);
+            } else {
+                // This is the oldest version, show as-is
+                diffContent = versionContent;
+            }
+            
+            // Show the diff content directly
+            previewContent.innerHTML = diffContent;
         }
 
         previewContent.classList.remove('empty');
@@ -1051,6 +2114,14 @@ class EssayPlatform {
             // Update the editor with the selected version
             document.getElementById('essay-title').value = this.selectedVersion.title;
             document.getElementById('editor').innerHTML = this.selectedVersion.content;
+            
+            // Restore the prompt if it exists
+            const promptEditor = document.getElementById('prompt-editor');
+            if (promptEditor && this.selectedVersion.prompt) {
+                promptEditor.innerHTML = this.selectedVersion.prompt;
+            } else if (promptEditor) {
+                promptEditor.innerHTML = '';
+            }
 
             // Save the restored version
             await this.saveEssay(true);
@@ -1163,6 +2234,30 @@ class EssayPlatform {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Check if changes between two versions are only whitespace/formatting
+    isOnlyWhitespaceChange(oldContent, newContent) {
+        // Strip HTML and normalize whitespace for comparison
+        const normalizeText = (html) => {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            const text = tempDiv.textContent || tempDiv.innerText || '';
+            // Normalize all whitespace to single spaces and trim
+            return text.replace(/\s+/g, ' ').trim();
+        };
+
+        const oldNormalized = normalizeText(oldContent);
+        const newNormalized = normalizeText(newContent);
+        
+        return oldNormalized === newNormalized;
+    }
+
+    // Check if this version should be merged with the previous one
+    shouldMergeWithPrevious(currentContent, previousContent) {
+        if (!previousContent) return false;
+        
+        return this.isOnlyWhitespaceChange(previousContent, currentContent);
     }
 
     // Group versions by editing sessions (within 30 minutes of each other)
@@ -1287,22 +2382,32 @@ class EssayPlatform {
         this.currentEssayId = essay.id;
         document.getElementById('essay-title').value = essay.title;
         document.getElementById('editor').innerHTML = essay.content;
+        
+        // Set prompt with debugging
+        const promptEditor = document.getElementById('prompt-editor');
+        if (promptEditor) {
+            promptEditor.innerHTML = essay.prompt || '';
+            console.log('Prompt loaded via loadEssay:', essay.prompt || '(empty)');
+        } else {
+            console.error('Prompt editor element not found in loadEssay!');
+        }
 
         // Set the last saved content to track changes
         this.lastSavedContent = {
             title: essay.title,
-            content: essay.content
+            content: essay.content,
+            prompt: essay.prompt || ''
         };
 
         // Initialize version tracking
         this.lastVersionContent = {
             title: essay.title,
-            content: essay.content
+            content: essay.content,
+            prompt: essay.prompt || ''
         };
 
         this.updateStats();
         this.updateAutosaveStatus('saved');
-        this.showNotification('Essay loaded successfully!', 'success');
     }
 
     showLoadModal() {
@@ -1841,23 +2946,44 @@ class EssayPlatform {
             if (response.ok) {
                 const essay = await response.json();
                 console.log('Essay loaded:', essay);
+                console.log('Essay prompt:', essay.prompt);
                 this.currentEssayId = essay.id;
                 document.getElementById('essay-title').value = essay.title;
                 document.getElementById('editor').innerHTML = essay.content;
+                
+                // Set prompt with debugging
+                const promptEditor = document.getElementById('prompt-editor');
+                if (promptEditor) {
+                    promptEditor.innerHTML = essay.prompt || '';
+                    console.log('Prompt set to:', essay.prompt || '(empty)');
+                } else {
+                    console.error('Prompt editor element not found!');
+                }
+
+                // Set tags
+                if (essay.tags) {
+                    this.currentTags = essay.tags.split(',').filter(tag => tag.trim());
+                } else {
+                    this.currentTags = [];
+                }
+                this.renderTags();
 
                 // Initialize tracking
                 this.lastSavedContent = {
                     title: essay.title,
-                    content: essay.content
+                    content: essay.content,
+                    prompt: essay.prompt || '',
+                    tags: essay.tags || ''
                 };
                 this.lastVersionContent = {
                     title: essay.title,
-                    content: essay.content
+                    content: essay.content,
+                    prompt: essay.prompt || '',
+                    tags: essay.tags || ''
                 };
 
                 this.updateStats();
                 this.updateAutosaveStatus('saved');
-                this.showNotification('Essay loaded successfully!', 'success');
             } else {
                 const errorText = await response.text();
                 console.error('Response error:', errorText);
@@ -1966,9 +3092,11 @@ class EssayPlatform {
             }
         });
     }
+
 }
 
 // Initialize the application
+let platform;
 document.addEventListener('DOMContentLoaded', () => {
-    new EssayPlatform();
+    platform = new EssayPlatform();
 });

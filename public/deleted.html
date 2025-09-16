@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EssayPro - Recently Deleted</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="deleted-container">
+        <!-- Header -->
+        <header class="deleted-header">
+            <div class="header-left">
+                <button id="back-to-home" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Home
+                </button>
+                <h1 class="page-title">
+                    <i class="fas fa-trash-restore"></i>
+                    Recently Deleted Essays
+                </h1>
+            </div>
+            <div class="header-right">
+                <button id="theme-toggle" class="btn btn-icon">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="deleted-main">
+            <div class="deleted-info">
+                <p>Essays are kept here for 30 days after deletion. You can restore them or permanently delete them.</p>
+            </div>
+
+            <div id="deleted-essays-container" class="deleted-essays-container">
+                <!-- Deleted essays will be loaded here -->
+            </div>
+
+            <div id="no-deleted-essays" class="empty-state" style="display: none;">
+                <div class="empty-icon">
+                    <i class="fas fa-trash"></i>
+                </div>
+                <h3>No Recently Deleted Essays</h3>
+                <p>Essays are kept here for 30 days after deletion.</p>
+                <button class="btn btn-primary" onclick="window.location.href='/'">
+                    <i class="fas fa-arrow-left"></i> Go Back Home
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Essay Preview Modal -->
+    <div id="preview-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 id="preview-title">Essay Preview</h3>
+                <button id="close-preview" class="btn btn-icon">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="preview-content" class="preview-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="close-preview-btn" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="deleted.js"></script>
+</body>
+</html>

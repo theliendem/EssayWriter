@@ -19,7 +19,22 @@
                 </h1>
                 <p class="tagline">Your ultimate essay writing companion</p>
             </div>
+            <div class="header-center">
+                <div class="search-container">
+                    <div class="search-input-wrapper">
+                        <i class="fas fa-search search-icon"></i>
+                        <input type="text" id="search-input" placeholder="Search essays by title, content, or date..." class="search-input">
+                        <button id="clear-search" class="clear-search-btn" style="display: none;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div id="search-suggestions" class="search-suggestions" style="display: none;"></div>
+                </div>
+            </div>
             <div class="header-right">
+                <button id="recently-deleted-btn" class="btn btn-secondary">
+                    <i class="fas fa-trash-restore"></i> Recently Deleted
+                </button>
                 <button id="new-essay-btn" class="btn btn-primary">
                     <i class="fas fa-plus"></i> New Essay
                 </button>
@@ -75,8 +90,17 @@
                     <input type="text" id="essay-title-input" placeholder="Enter your essay title..." class="form-input">
                 </div>
                 <div class="form-group">
-                    <label for="essay-description">Description (optional)</label>
-                    <textarea id="essay-description" placeholder="Brief description of your essay..." class="form-textarea"></textarea>
+                    <label for="essay-prompt">Essay Prompt</label>
+                    <textarea id="essay-prompt" placeholder="Enter your essay prompt or assignment instructions..." class="form-textarea"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="essay-tags-input">Tags</label>
+                    <div class="tags-input-container">
+                        <div class="tags-input-wrapper" id="tags-input-wrapper">
+                            <input type="text" id="essay-tags-input" placeholder="Add tags..." class="tags-input">
+                        </div>
+                        <div id="tags-suggestions" class="tags-suggestions" style="display: none;"></div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -87,6 +111,7 @@
             </div>
         </div>
     </div>
+
 
     <script src="home.js"></script>
 </body>

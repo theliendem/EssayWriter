@@ -18,6 +18,14 @@
                     EssayPro
                 </h1>
             </div>
+            <div class="header-tags">
+                <div class="header-tags-container">
+                    <div class="tags-input-wrapper" id="header-tags-input-wrapper">
+                        <input type="text" id="header-tags-input" placeholder="Add tags..." class="tags-input">
+                    </div>
+                    <div id="header-tags-suggestions" class="tags-suggestions" style="display: none;"></div>
+                </div>
+            </div>
             <div class="header-center">
                 <input type="text" id="essay-title" placeholder="Untitled Essay" class="title-input">
             </div>
@@ -28,14 +36,14 @@
                 <button id="version-history-btn" class="btn btn-secondary">
                     <i class="fas fa-history"></i> History
                 </button>
-                <button id="load-btn" class="btn btn-secondary">
-                    <i class="fas fa-home"></i> Home
-                </button>
                 <button id="chat-reopen-btn" class="btn btn-secondary" style="display: none;">
                     <i class="fas fa-comments"></i> Chat
                 </button>
-                <button id="theme-toggle" class="btn btn-icon">
-                    <i class="fas fa-moon"></i>
+                <button id="zen-mode-toggle" class="btn btn-icon" title="Zen Mode">
+                    <i class="fas fa-leaf"></i>
+                </button>
+                <button id="settings-toggle" class="btn btn-icon" title="Settings">
+                    <i class="fas fa-cog"></i>
                 </button>
             </div>
         </header>
@@ -89,8 +97,81 @@
         <div class="main-content">
             <!-- Editor Area -->
             <main class="editor-area">
+                <!-- Floating Prompt Section -->
+                <div id="prompt-section" class="prompt-section">
+                    <div class="prompt-header">
+                        <i class="fas fa-lightbulb"></i>
+                        <span>Essay Prompt</span>
+                        <button id="toggle-prompt" class="btn btn-icon" title="Toggle Prompt">
+                            <i class="fas fa-chevron-up"></i>
+                        </button>
+                    </div>
+                    <div class="prompt-content">
+                        <div id="prompt-editor" contenteditable="true" class="prompt-editor" placeholder="Enter your essay prompt or assignment instructions...">
+                        </div>
+                    </div>
+                </div>
+
+                
                 <div id="editor" contenteditable="true" class="editor">
                     <p>Start writing your essay here...</p>
+                </div>
+
+                <!-- Zen Mode Header -->
+                <div id="zen-header" class="zen-header" style="display: none;">
+                    <div class="zen-header-content">
+                        <!-- Left side: Stats -->
+                        <div class="zen-header-left">
+                            <div class="zen-stats-group" id="zen-stats-group" style="display: none;">
+                                <span class="zen-stat">
+                                    <span id="zen-word-count">0</span> words
+                                </span>
+                                <span class="zen-stat">
+                                    <span id="zen-char-count">0</span> chars
+                                </span>
+                                <span class="zen-stat">
+                                    <span id="zen-sentence-count">0</span> sentences
+                                </span>
+                                <span class="zen-stat">
+                                    <span id="zen-paragraph-count">0</span> paragraphs
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Center: Controls -->
+                        <div class="zen-header-center">
+                            <button id="zen-stats-toggle" class="zen-control-btn" title="Toggle Stats">
+                                <i class="fas fa-chart-bar"></i>
+                            </button>
+                            <button id="zen-format-toggle" class="zen-control-btn" title="Toggle Formatting">
+                                <i class="fas fa-font"></i>
+                            </button>
+                            <button id="zen-exit" class="zen-control-btn" title="Exit Zen Mode">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <!-- Right side: Formatting -->
+                        <div class="zen-header-right">
+                            <div class="zen-format-group" id="zen-format-group" style="display: none;">
+                                <button class="zen-format-btn" data-command="bold" title="Bold">
+                                    <i class="fas fa-bold"></i>
+                                </button>
+                                <button class="zen-format-btn" data-command="italic" title="Italic">
+                                    <i class="fas fa-italic"></i>
+                                </button>
+                                <button class="zen-format-btn" data-command="underline" title="Underline">
+                                    <i class="fas fa-underline"></i>
+                                </button>
+                                <select id="zen-heading-select" class="zen-heading-select">
+                                    <option value="">Normal</option>
+                                    <option value="h1">H1</option>
+                                    <option value="h2">H2</option>
+                                    <option value="h3">H3</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </main>
 
@@ -171,7 +252,17 @@
 
     <!-- Version History Modal -->
     <div id="version-history-modal" class="modal">
-        <div class="modal-content modal-large">
+        <div class="modal-content modal-large resizable-modal">
+            <!-- Resize handles -->
+            <div class="resize-handle n"></div>
+            <div class="resize-handle s"></div>
+            <div class="resize-handle e"></div>
+            <div class="resize-handle w"></div>
+            <div class="resize-handle nw"></div>
+            <div class="resize-handle ne"></div>
+            <div class="resize-handle sw"></div>
+            <div class="resize-handle se"></div>
+
             <div class="modal-header">
                 <h3>Version History</h3>
                 <button class="modal-close" id="version-modal-close">&times;</button>
@@ -195,6 +286,40 @@
                         </div>
                         <div id="version-preview-content" class="version-preview-content">
                             Select a version to preview
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h3>Settings</h3>
+                <button class="modal-close" id="settings-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-container">
+                    <div class="setting-group">
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                <h4>Appearance</h4>
+                                <p>Choose your preferred theme</p>
+                            </div>
+                            <div class="setting-control">
+                                <div class="theme-toggle-group">
+                                    <button id="light-theme-btn" class="theme-btn active" data-theme="light">
+                                        <i class="fas fa-sun"></i>
+                                        <span>Light</span>
+                                    </button>
+                                    <button id="dark-theme-btn" class="theme-btn" data-theme="dark">
+                                        <i class="fas fa-moon"></i>
+                                        <span>Dark</span>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

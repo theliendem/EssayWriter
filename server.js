@@ -32,6 +32,11 @@ app.get('/editor', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Serve deleted essays page
+app.get('/deleted', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'deleted.html'));
+});
+
 // Static file serving
 app.use(express.static('public'));
 
@@ -44,6 +49,7 @@ db.serialize(() => {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
+    prompt TEXT DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
@@ -57,11 +63,82 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (essay_id) REFERENCES essays (id) ON DELETE CASCADE
   )`);
+
+  // Add prompt column to essays if it doesn't exist (for existing databases)
+  db.run(`ALTER TABLE essays ADD COLUMN prompt TEXT DEFAULT ''`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding prompt column to essays:', err);
+    }
+  });
+
+  // Add prompt column to essay_versions if it doesn't exist
+  db.run(`ALTER TABLE essay_versions ADD COLUMN prompt TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding prompt column to essay_versions:', err);
+    }
+  });
+
+  // Add tags column to essays if it doesn't exist
+  db.run(`ALTER TABLE essays ADD COLUMN tags TEXT DEFAULT ''`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding tags column to essays:', err);
+    }
+  });
+
+  // Add tags column to essay_versions if it doesn't exist
+  db.run(`ALTER TABLE essay_versions ADD COLUMN tags TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding tags column to essay_versions:', err);
+    }
+  });
+
+  // Add deleted_at column to essays if it doesn't exist
+  db.run(`ALTER TABLE essays ADD COLUMN deleted_at DATETIME DEFAULT NULL`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding deleted_at column to essays:', err);
+    }
+  });
 });
 
 // Routes
 app.get('/api/essays', (req, res) => {
-  db.all('SELECT * FROM essays ORDER BY updated_at DESC', (err, rows) => {
+  db.all('SELECT * FROM essays WHERE deleted_at IS NULL ORDER BY updated_at DESC', (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Get all unique tags
+app.get('/api/tags', (req, res) => {
+  db.all('SELECT tags FROM essays WHERE tags != "" AND deleted_at IS NULL', (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    const allTags = new Set();
+    rows.forEach(row => {
+      if (row.tags) {
+        row.tags.split(',').forEach(tag => {
+          const cleanTag = tag.trim();
+          if (cleanTag) {
+            allTags.add(cleanTag);
+          }
+        });
+      }
+    });
+    
+    res.json(Array.from(allTags).sort());
+  });
+});
+
+// Get recently deleted essays (within 30 days)
+app.get('/api/essays/deleted', (req, res) => {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.all('SELECT * FROM essays WHERE deleted_at IS NOT NULL AND deleted_at > ? ORDER BY deleted_at DESC', [thirtyDaysAgo], (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
@@ -86,30 +163,61 @@ app.get('/api/essays/:id', (req, res) => {
 });
 
 app.post('/api/essays', (req, res) => {
-  const { title, content } = req.body;
-  db.run('INSERT INTO essays (title, content) VALUES (?, ?)', [title, content], function (err) {
+  const { title, content, prompt, tags } = req.body;
+  const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+  db.run('INSERT INTO essays (title, content, prompt, tags) VALUES (?, ?, ?, ?)', [title, content, prompt || '', tagsStr], function (err) {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
     }
-    res.json({ id: this.lastID, title, content });
+    res.json({ id: this.lastID, title, content, prompt: prompt || '', tags: tagsStr });
   });
 });
 
 app.put('/api/essays/:id', (req, res) => {
-  const { title, content } = req.body;
+  const { title, content, prompt, tags } = req.body;
   const { id } = req.params;
-  db.run('UPDATE essays SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-    [title, content, id], function (err) {
+  const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+  db.run('UPDATE essays SET title = ?, content = ?, prompt = ?, tags = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [title, content, prompt || '', tagsStr, id], function (err) {
       if (err) {
         res.status(500).json({ error: err.message });
         return;
       }
-      res.json({ id, title, content });
+      res.json({ id, title, content, prompt: prompt || '', tags: tagsStr });
     });
 });
 
 app.delete('/api/essays/:id', (req, res) => {
+  const { id } = req.params;
+  db.run('UPDATE essays SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?', [id], function (err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ deleted: this.changes });
+  });
+});
+
+
+// Restore a deleted essay
+app.put('/api/essays/:id/restore', (req, res) => {
+  const { id } = req.params;
+  db.run('UPDATE essays SET deleted_at = NULL WHERE id = ?', [id], function (err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (this.changes === 0) {
+      res.status(404).json({ error: 'Essay not found or already restored' });
+      return;
+    }
+    res.json({ restored: true });
+  });
+});
+
+// Permanently delete an essay
+app.delete('/api/essays/:id/permanent', (req, res) => {
   const { id } = req.params;
   db.run('DELETE FROM essays WHERE id = ?', [id], function (err) {
     if (err) {
@@ -117,6 +225,18 @@ app.delete('/api/essays/:id', (req, res) => {
       return;
     }
     res.json({ deleted: this.changes });
+  });
+});
+
+// Clean up essays deleted more than 30 days ago
+app.post('/api/essays/cleanup', (req, res) => {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.run('DELETE FROM essays WHERE deleted_at IS NOT NULL AND deleted_at <= ?', [thirtyDaysAgo], function (err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ cleaned: this.changes });
   });
 });
 
@@ -164,19 +284,20 @@ app.get('/api/essays/:id/versions', (req, res) => {
 
 app.post('/api/essays/:id/versions', (req, res) => {
   const { id } = req.params;
-  const { title, content, changes_only } = req.body;
+  const { title, content, prompt, tags, changes_only } = req.body;
+  const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
 
   console.log(`Creating version for essay ID: ${id}, changes: ${changes_only}`);
 
-  db.run('INSERT INTO essay_versions (essay_id, title, content, changes_only) VALUES (?, ?, ?, ?)',
-    [id, title, content, changes_only || null], function (err) {
+  db.run('INSERT INTO essay_versions (essay_id, title, content, prompt, tags, changes_only) VALUES (?, ?, ?, ?, ?, ?)',
+    [id, title, content, prompt || null, tagsStr, changes_only || null], function (err) {
       if (err) {
         console.error('Database error creating version:', err);
         res.status(500).json({ error: err.message });
         return;
       }
       console.log(`Created version with ID: ${this.lastID}`);
-      res.json({ id: this.lastID, essay_id: id, title, content });
+      res.json({ id: this.lastID, essay_id: id, title, content, prompt, tags: tagsStr });
     });
 });
 
@@ -673,7 +794,32 @@ app.get('/api/test-ai', async (req, res) => {
   }
 });
 
+// Automatic cleanup function
+function cleanupOldDeletedEssays() {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  db.run(
+    'DELETE FROM essays WHERE deleted_at IS NOT NULL AND deleted_at < ?',
+    [thirtyDaysAgo.toISOString()],
+    function(err) {
+      if (err) {
+        console.error('Error during automatic cleanup:', err);
+      } else if (this.changes > 0) {
+        console.log(`Automatically cleaned up ${this.changes} old deleted essays`);
+      }
+    }
+  );
+}
+
+// Run cleanup on startup
+cleanupOldDeletedEssays();
+
+// Schedule cleanup to run daily (24 hours = 86400000 milliseconds)
+setInterval(cleanupOldDeletedEssays, 86400000);
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Test enhanced AI detection at: http://localhost:${PORT}/api/test-ai`);
+  console.log('Automatic cleanup scheduled to run daily');
 });

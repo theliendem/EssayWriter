@@ -1,0 +1,8 @@
+-   ✅ Add in a prompt section in each essay, where you can put the prompt, and it always sticks to the top of the screen even when scrolling, and it doesn't count towards the word/character count
+-   Add a tags system to each essay
+-   ✅ Add a search bar in the home page
+-   ✅ Make any pasted text automatically adopt the current styling (paste without formatting)
+-   ✅ Add a "recently deleted" section where it holds on to deleted essays. After 30 days, they are deleted forever.
+-   ✅ Improve the version history section's diff highlighting and formatting rules
+-   Make it so that every 2 minutes, it goes through the version history and squashes down all the versions from the past 2 minutes into one version
+-   "Zen mode" where there's nothing but the text, and you can choose to show/hide stats and formatting options.
