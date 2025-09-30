@@ -19,23 +19,35 @@ class SmartDatabase {
   async init() {
     console.log('🔄 Initializing smart database system...');
     
-    // Try cloud database first
-    if (await this.tryCloudConnection()) {
-      this.type = 'postgresql';
-      this.cloudAvailable = true;
-      console.log('✅ Connected to cloud database');
-    } else {
+    try {
+      // Try cloud database first
+      if (await this.tryCloudConnection()) {
+        this.type = 'postgresql';
+        this.cloudAvailable = true;
+        console.log('✅ Connected to cloud database');
+      } else {
+        this.type = 'sqlite';
+        this.cloudAvailable = false;
+        console.log('📱 Using local database (cloud unavailable)');
+        await this.initLocalDatabase();
+      }
+
+      // Initialize schema
+      await this.initializeSchema();
+      
+      // Start sync monitoring
+      this.startSyncMonitoring();
+      
+      console.log('✅ Smart database system initialized successfully');
+    } catch (error) {
+      console.error('❌ Failed to initialize smart database system:', error);
+      // Fallback to local database
       this.type = 'sqlite';
       this.cloudAvailable = false;
-      console.log('📱 Using local database (cloud unavailable)');
       await this.initLocalDatabase();
+      await this.initializeSchema();
+      console.log('📱 Fallback to local database completed');
     }
-
-    // Initialize schema
-    await this.initializeSchema();
-    
-    // Start sync monitoring
-    this.startSyncMonitoring();
   }
 
   async tryCloudConnection() {

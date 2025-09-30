@@ -45,34 +45,72 @@ const db = new SmartDatabase();
 
 // Database status endpoint
 app.get('/api/database/status', (req, res) => {
-  const status = db.getStatus();
-  res.json({
-    ...status,
-    message: status.cloudAvailable
-      ? 'Connected to cloud database'
-      : 'Using local database (cloud unavailable)'
-  });
+  try {
+    if (!db) {
+      return res.status(500).json({
+        type: 'unknown',
+        cloudAvailable: false,
+        message: 'Database not initialized',
+        error: true
+      });
+    }
+
+    const status = db.getStatus();
+    res.json({
+      ...status,
+      message: status.cloudAvailable 
+        ? 'Connected to cloud database' 
+        : 'Using local database (cloud unavailable)'
+    });
+  } catch (error) {
+    console.error('Database status error:', error);
+    res.status(500).json({
+      type: 'unknown',
+      cloudAvailable: false,
+      message: 'Database error',
+      error: true
+    });
+  }
 });
 
 // Manual sync trigger endpoint
 app.post('/api/database/sync', async (req, res) => {
   try {
+    if (!db) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Database not initialized' 
+      });
+    }
+
     await db.triggerSync();
-    res.json({
-      success: true,
+    res.json({ 
+      success: true, 
       message: 'Sync triggered successfully',
       status: db.getStatus()
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
+    console.error('Sync error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
     });
   }
 });
 
+// Middleware to check database readiness
+const checkDatabaseReady = (req, res, next) => {
+  if (!db || !db.connection) {
+    return res.status(503).json({ 
+      error: 'Database not ready', 
+      message: 'Please wait a moment and try again' 
+    });
+  }
+  next();
+};
+
 // Routes
-app.get('/api/essays', async (req, res) => {
+app.get('/api/essays', checkDatabaseReady, async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM essays WHERE deleted_at IS NULL ORDER BY updated_at DESC');
     res.json(result.rows);
@@ -82,7 +120,7 @@ app.get('/api/essays', async (req, res) => {
 });
 
 // Get all unique tags
-app.get('/api/tags', async (req, res) => {
+app.get('/api/tags', checkDatabaseReady, async (req, res) => {
   try {
     const result = await db.query('SELECT tags FROM essays WHERE tags != \'\' AND deleted_at IS NULL');
     const rows = result.rows;
@@ -130,7 +168,7 @@ app.get('/api/essays/:id', async (req, res) => {
   }
 });
 
-app.post('/api/essays', async (req, res) => {
+app.post('/api/essays', checkDatabaseReady, async (req, res) => {
   try {
     const { title, content, prompt, tags } = req.body;
     const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
@@ -750,14 +788,20 @@ app.get('/api/test-ai', async (req, res) => {
 // Automatic cleanup function
 async function cleanupOldDeletedEssays() {
   try {
+    // Check if database is initialized
+    if (!db || !db.connection) {
+      console.log('Database not ready for cleanup, skipping...');
+      return;
+    }
+
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
+    
     const result = await db.run(
       'DELETE FROM essays WHERE deleted_at IS NOT NULL AND deleted_at < $1',
       [thirtyDaysAgo.toISOString()]
     );
-
+    
     if (result.changes > 0) {
       console.log(`Automatically cleaned up ${result.changes} old deleted essays`);
     }
@@ -766,8 +810,10 @@ async function cleanupOldDeletedEssays() {
   }
 }
 
-// Run cleanup on startup
-cleanupOldDeletedEssays();
+// Wait for database initialization before running cleanup
+setTimeout(async () => {
+  await cleanupOldDeletedEssays();
+}, 5000); // Wait 5 seconds for database to initialize
 
 // Schedule cleanup to run daily (24 hours = 86400000 milliseconds)
 setInterval(cleanupOldDeletedEssays, 86400000);
