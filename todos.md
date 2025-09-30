@@ -6,7 +6,10 @@
 -   ✅ Improve the version history section's diff highlighting and formatting rules
 -   Make it so that every 2 minutes, it goes through the version history and squashes down all the versions from the past 2 minutes into one version
 -   ✅ "Zen mode" where there's nothing but the text, and you can choose to show/hide stats and formatting options.
--   Add in a max word amount that turns the word counter red when you go over it
+-   ✅ Add in a max word amount that turns the word counter red when you go over it
 -   ✅ Make the default be to use the Hack Club free API endpoint
 -   ✅ Move the tags section to be in the settings page (keep tag visibility on the header maybe, but when clicked it opens the settings page)
--   Change the save indicator somehow
+-   ✅ Change the save indicator somehow
+-   Make it so you can toggle the character count to exclude spaces
+-   Make it condense public/styles.css
+-   Make it have a public cloud database

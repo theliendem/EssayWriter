@@ -15,6 +15,8 @@ class EssayPlatform {
         this.versionLoading = false;
         this.sessionGroups = [];
         this.chatHistory = [];
+        this.maxWordCount = parseInt(localStorage.getItem('maxWordCount')) || 0;
+        this.isTypingInSettings = false;
         this.selectionTimeout = null;
         this.promptCollapsed = localStorage.getItem('promptCollapsed') === 'true';
         this.tagsCollapsed = localStorage.getItem('tagsCollapsed') === 'true';
@@ -1070,13 +1072,206 @@ class EssayPlatform {
         const sentences = text.trim() ? text.split(/[.!?]+/).filter(s => s.trim()).length : 0;
         const paragraphs = text.trim() ? text.split(/\n\s*\n/).filter(p => p.trim()).length : 0;
 
-        document.getElementById('word-count').textContent = words;
+        const wordCountElement = document.getElementById('word-count');
+        wordCountElement.textContent = words;
+
+        // Check if there's currently a text selection
+        const hasSelection = window.getSelection().toString().trim().length > 0;
+
+        // Check word limit and apply red styling if over limit AND no text is selected
+        if (this.maxWordCount > 0 && words > this.maxWordCount && !hasSelection) {
+            wordCountElement.style.color = '#ef4444';
+            wordCountElement.style.fontWeight = 'bold';
+        } else {
+            wordCountElement.style.color = '';
+            wordCountElement.style.fontWeight = '';
+        }
+
         document.getElementById('char-count').textContent = characters;
         document.getElementById('sentence-count').textContent = sentences;
         document.getElementById('paragraph-count').textContent = paragraphs;
 
         // Update Zen mode stats if visible
         this.updateZenStats();
+
+        // Highlight words over limit
+        this.highlightWordsOverLimit(words);
+    }
+
+    highlightWordsOverLimit(totalWords) {
+        if (this.maxWordCount <= 0 || totalWords <= this.maxWordCount) {
+            // Remove any existing highlighting
+            this.removeWordLimitHighlighting();
+            return;
+        }
+
+        // Don't highlight if user is typing in settings to avoid focus issues
+        if (this.isTypingInSettings || (document.activeElement && document.activeElement.id === 'max-word-count')) {
+            return;
+        }
+
+        const editor = document.getElementById('editor');
+        const selection = window.getSelection();
+        const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+        let cursorOffset = 0;
+
+        // Save cursor position only if it's in the editor
+        if (range && editor.contains(range.startContainer)) {
+            cursorOffset = this.getCursorOffset(editor, range.startContainer, range.startOffset);
+        } else {
+            // If cursor is not in editor, don't try to restore it
+            range = null;
+        }
+
+        // Remove existing highlighting first
+        this.removeWordLimitHighlighting();
+
+        // Get all text nodes and their words
+        const textNodes = this.getTextNodes(editor);
+        let wordCount = 0;
+        let wordsToHighlight = totalWords - this.maxWordCount;
+
+        // Process text nodes to find and highlight excess words
+        for (let i = textNodes.length - 1; i >= 0 && wordsToHighlight > 0; i--) {
+            const textNode = textNodes[i];
+            const text = textNode.textContent;
+            const words = text.trim().split(/\s+/).filter(word => word.length > 0);
+
+            if (words.length === 0) continue;
+
+            // Count words from the end to highlight the last words that go over limit
+            const wordsInThisNode = Math.min(wordsToHighlight, words.length);
+
+            if (wordsInThisNode > 0) {
+                this.highlightWordsInTextNode(textNode, wordsInThisNode);
+                wordsToHighlight -= wordsInThisNode;
+            }
+        }
+
+        // Restore cursor position only if it was originally in the editor
+        if (range && document.activeElement !== document.getElementById('max-word-count')) {
+            this.setCursorOffset(editor, cursorOffset);
+        }
+    }
+
+    removeWordLimitHighlighting() {
+        const editor = document.getElementById('editor');
+        const highlightedElements = editor.querySelectorAll('.word-over-limit');
+
+        highlightedElements.forEach(element => {
+            const parent = element.parentNode;
+            parent.insertBefore(document.createTextNode(element.textContent), element);
+            parent.removeChild(element);
+            parent.normalize(); // Merge adjacent text nodes
+        });
+    }
+
+    getTextNodes(element) {
+        const textNodes = [];
+        const walker = document.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT,
+            null,
+            false
+        );
+
+        let node;
+        while (node = walker.nextNode()) {
+            if (node.textContent.trim()) {
+                textNodes.push(node);
+            }
+        }
+        return textNodes;
+    }
+
+    highlightWordsInTextNode(textNode, wordsToHighlight) {
+        const text = textNode.textContent;
+        const words = text.split(/(\s+)/); // Split but keep whitespace
+        let wordCount = 0;
+        let highlightStart = -1;
+
+        // Find where to start highlighting (from the end)
+        for (let i = words.length - 1; i >= 0; i--) {
+            if (words[i].trim()) { // It's a word, not whitespace
+                wordCount++;
+                if (wordCount === wordsToHighlight) {
+                    highlightStart = i;
+                    break;
+                }
+            }
+        }
+
+        if (highlightStart === -1) return;
+
+        // Create new content with highlighted words
+        const beforeHighlight = words.slice(0, highlightStart).join('');
+        const toHighlight = words.slice(highlightStart).join('');
+
+        const parent = textNode.parentNode;
+
+        // Create new text node for content before highlighting
+        if (beforeHighlight) {
+            parent.insertBefore(document.createTextNode(beforeHighlight), textNode);
+        }
+
+        // Create highlighted span for excess words
+        if (toHighlight.trim()) {
+            const highlightSpan = document.createElement('span');
+            highlightSpan.className = 'word-over-limit';
+            highlightSpan.textContent = toHighlight;
+            parent.insertBefore(highlightSpan, textNode);
+        }
+
+        // Remove original text node
+        parent.removeChild(textNode);
+    }
+
+    getCursorOffset(root, node, offset) {
+        const walker = document.createTreeWalker(
+            root,
+            NodeFilter.SHOW_TEXT,
+            null,
+            false
+        );
+
+        let charCount = 0;
+        let currentNode;
+
+        while (currentNode = walker.nextNode()) {
+            if (currentNode === node) {
+                return charCount + offset;
+            }
+            charCount += currentNode.textContent.length;
+        }
+
+        return charCount;
+    }
+
+    setCursorOffset(root, offset) {
+        const walker = document.createTreeWalker(
+            root,
+            NodeFilter.SHOW_TEXT,
+            null,
+            false
+        );
+
+        let charCount = 0;
+        let currentNode;
+
+        while (currentNode = walker.nextNode()) {
+            if (charCount + currentNode.textContent.length >= offset) {
+                const range = document.createRange();
+                const selection = window.getSelection();
+
+                range.setStart(currentNode, offset - charCount);
+                range.collapse(true);
+
+                selection.removeAllRanges();
+                selection.addRange(range);
+                return;
+            }
+            charCount += currentNode.textContent.length;
+        }
     }
 
     updateSelectionStats() {
@@ -1118,7 +1313,13 @@ class EssayPlatform {
                     }
 
                     // Update stats with selection info
-                    document.getElementById('word-count').textContent = `${words} selected`;
+                    const wordCountElement = document.getElementById('word-count');
+                    wordCountElement.textContent = `${words} selected`;
+
+                    // Always show selection stats in normal color (white/default)
+                    wordCountElement.style.color = '';
+                    wordCountElement.style.fontWeight = '';
+
                     document.getElementById('char-count').textContent = `${characters} selected`;
                     document.getElementById('sentence-count').textContent = `${sentences} selected`;
                     document.getElementById('paragraph-count').textContent = `${paragraphs} selected`;
@@ -1329,39 +1530,18 @@ class EssayPlatform {
 
     updateAutosaveStatus(status) {
         const statusElement = document.getElementById('autosave-status');
-        const icon = statusElement.querySelector('i');
 
-        statusElement.className = `autosave-status ${status}`;
+        // Remove all status classes except version-saved (we want to preserve it)
+        statusElement.classList.remove('saving', 'saved', 'error');
 
-        switch (status) {
-            case 'saving':
-                icon.className = 'fas fa-circle-notch fa-spin';
-                statusElement.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Saving...';
-                break;
-            case 'saved':
-                // Don't show anything for regular saves - keep it minimal
-                icon.className = 'fas fa-circle';
-                statusElement.innerHTML = '<i class="fas fa-circle"></i>';
-                statusElement.style.opacity = '0.5';
-                break;
-            case 'version-saved':
-                icon.className = 'fas fa-history';
-                statusElement.innerHTML = '<i class="fas fa-history"></i> Saved version snapshot';
-                statusElement.style.opacity = '1';
-                // Hide the message after 3 seconds
-                setTimeout(() => {
-                    this.updateAutosaveStatus('saved');
-                }, 3000);
-                break;
-            case 'error':
-                icon.className = 'fas fa-exclamation-circle';
-                statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i> Save failed';
-                statusElement.style.opacity = '1';
-                break;
-            default:
-                icon.className = 'fas fa-circle';
-                statusElement.innerHTML = '<i class="fas fa-circle"></i>';
-                statusElement.style.opacity = '0.5';
+        // Add the specific status class
+        if (status) {
+            statusElement.classList.add(status);
+        }
+
+        // If this is a regular save and we had version-saved, remove it
+        if (status === 'saved' || status === 'saving') {
+            statusElement.classList.remove('version-saved');
         }
     }
 
@@ -1490,7 +1670,16 @@ class EssayPlatform {
     showSettingsModal() {
         document.getElementById('settings-modal').style.display = 'block';
         this.updateThemeButtons();
+        this.loadSettingsValues();
         this.initSettingsListeners();
+    }
+
+    loadSettingsValues() {
+        // Load max word count
+        const maxWordCountInput = document.getElementById('max-word-count');
+        if (maxWordCountInput) {
+            maxWordCountInput.value = this.maxWordCount || '';
+        }
     }
 
     hideSettingsModal() {
@@ -1528,6 +1717,46 @@ class EssayPlatform {
         if (darkBtn && !darkBtn.hasSettingsListener) {
             darkBtn.addEventListener('click', () => this.toggleTheme('dark'));
             darkBtn.hasSettingsListener = true;
+        }
+
+        // Max word count input
+        const maxWordCountInput = document.getElementById('max-word-count');
+        if (maxWordCountInput && !maxWordCountInput.hasSettingsListener) {
+            maxWordCountInput.addEventListener('input', (e) => {
+                e.stopPropagation(); // Prevent event bubbling
+                this.isTypingInSettings = true;
+
+                const value = parseInt(e.target.value) || 0;
+                this.maxWordCount = value;
+                localStorage.setItem('maxWordCount', value.toString());
+
+                // If setting to 0 (no limit), immediately remove highlighting
+                if (value === 0) {
+                    this.removeWordLimitHighlighting();
+                }
+
+                // Use setTimeout to avoid focus issues during typing
+                setTimeout(() => {
+                    this.isTypingInSettings = false;
+                    this.updateStats(); // Refresh stats and highlighting
+                }, 100);
+            });
+
+            // Also handle focus events to prevent editor interference
+            maxWordCountInput.addEventListener('focus', (e) => {
+                e.stopPropagation();
+                this.isTypingInSettings = true;
+            });
+
+            maxWordCountInput.addEventListener('blur', (e) => {
+                this.isTypingInSettings = false;
+            });
+
+            maxWordCountInput.addEventListener('keydown', (e) => {
+                e.stopPropagation(); // Prevent keydown from bubbling to editor
+            });
+
+            maxWordCountInput.hasSettingsListener = true;
         }
     }
 
@@ -1727,7 +1956,21 @@ class EssayPlatform {
         const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0).length;
         const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
 
-        document.getElementById('zen-word-count').textContent = words;
+        const zenWordCountElement = document.getElementById('zen-word-count');
+        zenWordCountElement.textContent = words;
+
+        // Check if there's currently a text selection
+        const hasSelection = window.getSelection().toString().trim().length > 0;
+
+        // Check word limit and apply red styling if over limit AND no text is selected
+        if (this.maxWordCount > 0 && words > this.maxWordCount && !hasSelection) {
+            zenWordCountElement.style.color = '#ef4444';
+            zenWordCountElement.style.fontWeight = 'bold';
+        } else {
+            zenWordCountElement.style.color = '';
+            zenWordCountElement.style.fontWeight = '';
+        }
+
         document.getElementById('zen-char-count').textContent = chars;
         document.getElementById('zen-sentence-count').textContent = sentences;
         document.getElementById('zen-paragraph-count').textContent = paragraphs;
@@ -2934,7 +3177,30 @@ class EssayPlatform {
             this.loadEssayById(essayId);
         } else {
             console.log('No essay ID in URL');
+            // For new essays, ensure editor starts empty
+            this.initializeNewEssay();
         }
+    }
+
+    initializeNewEssay() {
+        // Clear all content for a fresh start
+        document.getElementById('essay-title').value = '';
+
+        // Ensure editor is completely empty for placeholder to show
+        const editor = document.getElementById('editor');
+        editor.innerHTML = '';
+        editor.textContent = ''; // Remove any text nodes
+
+        document.getElementById('prompt-editor').innerHTML = '';
+
+        // Reset essay state
+        this.currentEssayId = null;
+        this.lastSavedContent = null;
+        this.lastVersionContent = null;
+        this.currentTags = [];
+
+        // Update autosave status
+        this.updateAutosaveStatus('saved');
     }
 
     async loadEssayById(id) {

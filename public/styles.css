@@ -43,7 +43,10 @@ body {
 }
 
 /* Ensure all form elements inherit the font */
-input, textarea, select, button {
+input,
+textarea,
+select,
+button {
   font-family: inherit;
 }
 
@@ -55,7 +58,7 @@ input, textarea, select, button {
 
 /* Header */
 .header {
-  background: var(--bg-primary);
+  background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
   padding: 1rem 2rem;
   display: flex;
   align-items: center;
@@ -90,23 +93,22 @@ input, textarea, select, button {
 }
 
 .header-tags .tags-input-wrapper {
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
   backdrop-filter: blur(10px);
   min-height: 36px;
 }
 
 .header-tags .tags-input-wrapper:focus-within {
-  background: rgba(255, 255, 255, 0.25);
-  border-color: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .header-tags .tag-chip {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
   color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .header-tags .tag-chip .remove-tag {
@@ -153,6 +155,80 @@ input, textarea, select, button {
 .header-right {
   display: flex;
   gap: 0.75rem;
+  align-items: center;
+}
+
+/* Database Status Indicator */
+.database-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  backdrop-filter: blur(10px);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.database-status:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.database-status i {
+  font-size: 0.875rem;
+  transition: all 0.3s ease;
+}
+
+.database-status.connected {
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.database-status.connected i {
+  color: #10b981;
+}
+
+.database-status.local {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.database-status.local i {
+  color: #f59e0b;
+}
+
+.database-status.syncing {
+  color: #3b82f6;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.database-status.syncing i {
+  color: #3b82f6;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.database-status.error {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.database-status.error i {
+  color: #ef4444;
 }
 
 /* Buttons */
@@ -338,15 +414,37 @@ input, textarea, select, button {
   background: var(--bg-primary);
   color: var(--text-primary);
   overflow-y: auto;
+  border: none;
 }
 
 .editor p {
   margin-bottom: 1.5rem;
 }
 
-.editor h1, .editor h2, .editor h3 {
+.editor:empty:before {
+  content: attr(placeholder);
+  color: var(--text-secondary);
+  pointer-events: none;
+  font-style: italic;
+  display: block;
+}
+
+.editor:focus:empty:before {
+  opacity: 0.7;
+}
+
+.editor h1,
+.editor h2,
+.editor h3 {
   margin: 2rem 0 1rem 0;
   font-weight: 600;
+}
+
+/* Word limit highlighting */
+.word-over-limit {
+  background-color: rgba(239, 68, 68, 0.35);
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .editor h1 {
@@ -370,7 +468,7 @@ input, textarea, select, button {
   min-width: 300px;
   /* max-width: 60%; */
   background: var(--bg-secondary);
-  border-left: 1px solid var(--border-color);
+  border-left: none;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -424,12 +522,12 @@ input, textarea, select, button {
 
 .chat-header {
   padding: 1rem;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--gradient);
-  color: white;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .chat-header h3 {
@@ -451,11 +549,10 @@ input, textarea, select, button {
 
 .chat-status {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
   padding: 0.25rem 0.5rem;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .chat-messages {
@@ -472,14 +569,14 @@ input, textarea, select, button {
   align-items: flex-start;
   gap: 0.75rem;
   padding: 1rem;
-  border-radius: 12px;
+  border-radius: 8px;
   max-width: 90%;
   line-height: 1.5;
   white-space: pre-line;
 }
 
 .assistant-message {
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   align-self: flex-start;
 }
 
@@ -536,10 +633,14 @@ input, textarea, select, button {
 }
 
 @keyframes typing {
-  0%, 80%, 100% {
+
+  0%,
+  80%,
+  100% {
     transform: scale(0.8);
     opacity: 0.5;
   }
+
   40% {
     transform: scale(1);
     opacity: 1;
@@ -683,18 +784,18 @@ input, textarea, select, button {
   .main-content {
     flex-direction: column;
   }
-  
+
   .sidebar,
   .chat-panel {
     width: 100%;
     height: auto;
   }
-  
+
   .header {
     flex-direction: column;
     gap: 1rem;
   }
-  
+
   .header-center {
     margin: 0;
     max-width: none;
@@ -1110,6 +1211,7 @@ input, textarea, select, button {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
 }
+
 /* Mar
 kdown Formatting in Chat */
 .message-text strong {
@@ -1177,8 +1279,16 @@ kdown Formatting in Chat */
 }
 
 @keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+
+  0%,
+  50% {
+    opacity: 1;
+  }
+
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 /* Smooth streaming animation */
@@ -1191,38 +1301,66 @@ kdown Formatting in Chat */
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
-/* Autosave Status */
+
+/* Autosave Status - Simple Dot Indicator */
 .autosave-status {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.9rem;
-  font-weight: 500;
-  padding: 0.5rem 1rem;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  backdrop-filter: blur(10px);
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  border-radius: 50%;
+  border: 2px solid transparent;
   transition: all 0.3s ease;
 }
 
-.autosave-status.saving {
-  color: #fbbf24;
+.autosave-status i {
+  font-size: 8px;
+  color: #10b981;
+  transition: all 0.3s ease;
 }
 
-.autosave-status.saved {
+/* Saving state - pulsing dot */
+.autosave-status.saving {
+  animation: savingPulse 1s ease-in-out infinite;
+}
+
+/* Saved state - solid green */
+.autosave-status.saved i {
   color: #10b981;
 }
 
-.autosave-status.error {
+/* Version saved - dark green outline */
+.autosave-status.version-saved {
+  border-color: #047857;
+  border-width: 3px;
+}
+
+/* Error state - red */
+.autosave-status.error i {
   color: #ef4444;
 }
 
-.autosave-status i {
-  font-size: 0.7rem;
+/* Simple pulsing animation */
+@keyframes savingPulse {
+
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Version History Modal */
@@ -1461,21 +1599,9 @@ kdown Formatting in Chat */
   font-size: 0.7rem;
   font-weight: 500;
   margin-left: 0.5rem;
-}/*
- Smooth transitions for autosave status */
-.autosave-status {
-  transition: all 0.3s ease;
 }
 
-.autosave-status.saving {
-  animation: pulse 1.5s infinite;
-}
-
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.7; }
-  100% { opacity: 1; }
-}
+/*
 
 /* Version history scrollbar styling */
 .versions-list-content::-webkit-scrollbar {
@@ -1533,7 +1659,7 @@ kdown Formatting in Chat */
     width: 95vw;
     height: 90vh;
   }
-  
+
   .version-history-container {
     grid-template-columns: 300px 1fr;
   }
@@ -1544,12 +1670,12 @@ kdown Formatting in Chat */
     width: 95vw;
     height: 95vh;
   }
-  
+
   .version-history-container {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
   }
-  
+
   .versions-list {
     border-right: none;
     border-bottom: 1px solid var(--border-color);
@@ -1557,45 +1683,25 @@ kdown Formatting in Chat */
     padding-bottom: 1rem;
     margin-bottom: 1rem;
   }
-  
+
   .versions-list-content {
     max-height: 250px;
   }
-  
+
   .version-preview-header {
     flex-direction: column;
     align-items: stretch;
     gap: 0.75rem;
   }
-  
+
   .version-actions .btn {
     min-width: auto;
     width: 100%;
   }
-}/*
- Enhanced autosave status styling */
-.autosave-status {
-  transition: all 0.3s ease;
-  min-width: 120px;
-  text-align: center;
 }
 
-.autosave-status.version-saved {
-  background: rgba(16, 185, 129, 0.2);
-  color: #10b981;
-  animation: versionPulse 0.5s ease-in-out;
-}
-
-@keyframes versionPulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-  100% { transform: scale(1); }
-}
-
-/* Minimal state styling */
-.autosave-status[style*="opacity: 0.5"] {
-  background: rgba(255, 255, 255, 0.05);
-}/* Enh
+/*
+/* Enh
 anced version history modal styling */
 .modal-large .modal-body {
   padding: 1.5rem 2rem 2rem;
@@ -1849,6 +1955,7 @@ body.zen-mode-exiting .prompt-section {
     opacity: 1;
     visibility: visible;
   }
+
   to {
     opacity: 0;
     visibility: hidden;
@@ -1860,6 +1967,7 @@ body.zen-mode-exiting .prompt-section {
     opacity: 0;
     visibility: hidden;
   }
+
   to {
     opacity: 1;
     visibility: visible;
@@ -1903,6 +2011,23 @@ body.zen-mode-exiting .prompt-section {
 
 .setting-control {
   flex-shrink: 0;
+}
+
+.setting-input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  width: 120px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.setting-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
 }
 
 .theme-toggle-group {
@@ -2004,7 +2129,7 @@ body.zen-mode-exiting .prompt-section {
     width: 95vw;
     height: 92vh;
   }
-  
+
   .version-history-container {
     grid-template-columns: 380px 1fr;
     gap: 2rem;
@@ -2016,12 +2141,13 @@ body.zen-mode-exiting .prompt-section {
     width: 95vw;
     height: 90vh;
   }
-  
+
   .version-history-container {
     grid-template-columns: 350px 1fr;
     gap: 1.5rem;
   }
 }
+
 /* Chat panel toggle functionality */
 .chat-panel.hidden {
   display: none !important;
@@ -2040,17 +2166,18 @@ body.zen-mode-exiting .prompt-section {
 /* Ensure editor area expands when chat is hidden */
 .main-content:has(.chat-panel[style*="display: none"]) .editor-area {
   flex: 1;
-}/* Tool
+}
+
+/* Tool
 bar Styles */
 .toolbar {
   background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-light);
   padding: 0.75rem 2rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 2rem;
-  box-shadow: var(--shadow);
   z-index: 50;
 }
 
@@ -2155,12 +2282,12 @@ bar Styles */
 /* Update chat header for AI tools */
 .chat-header {
   padding: 1rem;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--gradient);
-  color: white;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .chat-header-center {
@@ -2198,20 +2325,21 @@ bar Styles */
     gap: 1rem;
     padding: 1rem;
   }
-  
+
   .toolbar-section {
     width: 100%;
     justify-content: center;
   }
-  
+
   .stats-group {
     flex-wrap: wrap;
     justify-content: center;
     gap: 1rem;
   }
-  
+
   .chat-header-center {
-    display: none; /* Hide AI tools on mobile to save space */
+    display: none;
+    /* Hide AI tools on mobile to save space */
   }
 }
 
@@ -2220,11 +2348,13 @@ bar Styles */
     grid-template-columns: repeat(2, 1fr);
     gap: 0.75rem;
   }
-  
+
   .stats-group .stat-item {
     font-size: 0.8rem;
   }
-}/* AI T
+}
+
+/* AI T
 ools Section inside Chat Panel */
 .ai-tools-section {
   background: var(--bg-tertiary);
@@ -2293,12 +2423,12 @@ ools Section inside Chat Panel */
 /* Update chat header layout */
 .chat-header {
   padding: 1rem;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--gradient);
-  color: white;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 /* Responsive design for AI tools */
@@ -2306,19 +2436,20 @@ ools Section inside Chat Panel */
   .ai-tools-buttons {
     gap: 0.3rem;
   }
-  
+
   .btn-ai-tool {
     padding: 0.4rem 0.5rem;
     font-size: 0.75rem;
   }
-  
+
   .btn-ai-tool i {
     font-size: 0.8rem;
     width: 12px;
   }
-  
+
   .btn-ai-tool span {
-    display: none; /* Hide text on mobile, show only icons */
+    display: none;
+    /* Hide text on mobile, show only icons */
   }
 }
 
@@ -2326,16 +2457,18 @@ ools Section inside Chat Panel */
   .ai-tools-section {
     padding: 0.5rem;
   }
-  
+
   .ai-tools-header {
     margin-bottom: 0.4rem;
   }
-  
+
   .btn-ai-tool {
     padding: 0.4rem;
     min-width: 32px;
   }
-}/* V
+}
+
+/* V
 ersion History Loading Indicator */
 .loading-indicator {
   padding: 1rem;
@@ -2388,7 +2521,9 @@ ersion History Loading Indicator */
 
 .versions-list-content::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
-}/* 
+}
+
+/* 
 Version History Diff Highlighting */
 .diff-added {
   background-color: rgba(34, 197, 94, 0.15);
@@ -2562,7 +2697,9 @@ Version History Diff Highlighting */
 
 .session-version-item.selected .version-changes-small {
   color: rgba(255, 255, 255, 0.9);
-}/* Diff i
+}
+
+/* Diff i
 nfo styling */
 .diff-info {
   margin-bottom: 10px;
@@ -2616,12 +2753,29 @@ nfo styling */
   color: var(--text-primary);
 }
 
-.version-preview-content h1 { font-size: 2rem; }
-.version-preview-content h2 { font-size: 1.75rem; }
-.version-preview-content h3 { font-size: 1.5rem; }
-.version-preview-content h4 { font-size: 1.25rem; }
-.version-preview-content h5 { font-size: 1.1rem; }
-.version-preview-content h6 { font-size: 1rem; }
+.version-preview-content h1 {
+  font-size: 2rem;
+}
+
+.version-preview-content h2 {
+  font-size: 1.75rem;
+}
+
+.version-preview-content h3 {
+  font-size: 1.5rem;
+}
+
+.version-preview-content h4 {
+  font-size: 1.25rem;
+}
+
+.version-preview-content h5 {
+  font-size: 1.1rem;
+}
+
+.version-preview-content h6 {
+  font-size: 1rem;
+}
 
 .version-preview-content p {
   margin: 0.5rem 0;
@@ -2688,7 +2842,6 @@ nfo styling */
 /* Selection stats indicator */
 .stats.selection-mode {
   background: var(--accent-color);
-  background: linear-gradient(135deg, var(--accent-color), var(--accent-hover));
   color: white;
   border-radius: 8px;
   padding: 0.75rem;
@@ -2707,7 +2860,9 @@ nfo styling */
 
 .stats.selection-mode .stat-label {
   color: rgba(255, 255, 255, 0.9);
-}/* A
+}
+
+/* A
 I Tools Inline */
 .ai-tools-inline {
   display: flex;
@@ -2762,7 +2917,8 @@ I Tools Inline */
   scroll-behavior: smooth;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  padding: 0.25rem 40px; /* Add padding for navigation arrows */
+  padding: 0.25rem 40px;
+  /* Add padding for navigation arrows */
 }
 
 .carousel-track::-webkit-scrollbar {
@@ -2845,15 +3001,15 @@ I Tools Inline */
     width: 100%;
     min-width: unset;
   }
-  
+
   .carousel-nav {
     display: none;
   }
-  
+
   .carousel-track {
     padding: 0.25rem 0;
   }
-  
+
   .quick-actions-carousel {
     padding: 0.5rem;
   }
@@ -2870,11 +3026,10 @@ I Tools Inline */
   position: sticky;
   top: 0;
   z-index: 100;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: none;
+  border-radius: 8px;
   margin-bottom: 1rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   transition: all 0.3s ease;
 }
 
@@ -2892,14 +3047,14 @@ I Tools Inline */
   gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: var(--bg-secondary);
-  border-radius: 12px 12px 0 0;
-  border-bottom: 1px solid var(--border-color);
+  border-radius: 8px 8px 0 0;
+  border-bottom: none;
   cursor: pointer;
   user-select: none;
 }
 
 .prompt-section.collapsed .prompt-header {
-  border-radius: 12px;
+  border-radius: 8px;
   border-bottom: none;
 }
 
@@ -2931,28 +3086,32 @@ I Tools Inline */
 
 .prompt-content {
   padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 0 0 8px 8px;
 }
 
 .prompt-editor {
-  min-height: 60px;
+  min-height: 100px;
   max-height: 200px;
   overflow-y: auto;
   padding: 0.75rem;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
+  border: none;
+  border-radius: 0;
+  background: var(--bg-secondary);
   font-family: inherit;
   font-size: 0.9rem;
   line-height: 1.5;
   color: var(--text-primary);
   outline: none;
   resize: vertical;
-  transition: border-color 0.2s ease;
+  transition: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .prompt-editor:focus {
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+  border: none;
+  box-shadow: none;
 }
 
 .prompt-editor:empty:before {
@@ -2980,20 +3139,20 @@ I Tools Inline */
     margin-bottom: 0.75rem;
     border-radius: 8px;
   }
-  
+
   .prompt-header {
     padding: 0.5rem 0.75rem;
     border-radius: 8px 8px 0 0;
   }
-  
+
   .prompt-section.collapsed .prompt-header {
     border-radius: 8px;
   }
-  
+
   .prompt-content {
     padding: 0.75rem;
   }
-  
+
   .prompt-editor {
     min-height: 50px;
     max-height: 150px;
@@ -3013,6 +3172,7 @@ I Tools Inline */
 [data-theme="dark"] .prompt-editor {
   background: var(--bg-secondary);
 }
+
 /* 
 Search Bar Styles */
 .header-center {
@@ -3298,26 +3458,26 @@ Search Bar Styles */
   .header-center {
     padding: 0 1rem;
   }
-  
+
   .search-input {
     font-size: 0.9rem;
     padding: 0.6rem 0.8rem 0.6rem 2.2rem;
   }
-  
+
   .search-icon {
     left: 0.8rem;
     font-size: 0.8rem;
   }
-  
+
   .clear-search-btn {
     right: 0.6rem;
   }
-  
+
   .essay-tags {
     margin-top: 0.25rem;
     margin-bottom: 0.25rem;
   }
-  
+
   .essay-tag {
     font-size: 0.65rem;
     padding: 0.1rem 0.4rem;
@@ -3328,7 +3488,7 @@ Search Bar Styles */
   .header-center {
     padding: 0 0.5rem;
   }
-  
+
   .search-input::placeholder {
     content: "Search essays...";
   }
@@ -3601,7 +3761,9 @@ Search Bar Styles */
   line-height: 1.6;
 }
 
-.preview-content h1, .preview-content h2, .preview-content h3 {
+.preview-content h1,
+.preview-content h2,
+.preview-content h3 {
   color: var(--text-primary);
   margin-top: 1.5rem;
   margin-bottom: 0.75rem;
@@ -3669,7 +3831,7 @@ Search Bar Styles */
     align-items: flex-start;
     gap: 0.75rem;
   }
-  
+
   .deleted-essay-actions {
     margin-left: 0;
     width: 100%;

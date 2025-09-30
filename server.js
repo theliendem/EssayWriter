@@ -1,11 +1,11 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const axios = require('axios');
 const { spawn } = require('child_process');
 const Groq = require('groq-sdk');
+const SmartDatabase = require('./smart-database');
 
 // Load environment variables
 require('dotenv').config();
@@ -40,85 +40,53 @@ app.get('/deleted', (req, res) => {
 // Static file serving
 app.use(express.static('public'));
 
-// Initialize SQLite database
-const db = new sqlite3.Database('essays.db');
+// Initialize smart database
+const db = new SmartDatabase();
 
-// Create essays table and version history table
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS essays (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    content TEXT NOT NULL,
-    prompt TEXT DEFAULT '',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS essay_versions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    essay_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    content TEXT NOT NULL,
-    changes_only TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (essay_id) REFERENCES essays (id) ON DELETE CASCADE
-  )`);
-
-  // Add prompt column to essays if it doesn't exist (for existing databases)
-  db.run(`ALTER TABLE essays ADD COLUMN prompt TEXT DEFAULT ''`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding prompt column to essays:', err);
-    }
+// Database status endpoint
+app.get('/api/database/status', (req, res) => {
+  const status = db.getStatus();
+  res.json({
+    ...status,
+    message: status.cloudAvailable
+      ? 'Connected to cloud database'
+      : 'Using local database (cloud unavailable)'
   });
+});
 
-  // Add prompt column to essay_versions if it doesn't exist
-  db.run(`ALTER TABLE essay_versions ADD COLUMN prompt TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding prompt column to essay_versions:', err);
-    }
-  });
-
-  // Add tags column to essays if it doesn't exist
-  db.run(`ALTER TABLE essays ADD COLUMN tags TEXT DEFAULT ''`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding tags column to essays:', err);
-    }
-  });
-
-  // Add tags column to essay_versions if it doesn't exist
-  db.run(`ALTER TABLE essay_versions ADD COLUMN tags TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding tags column to essay_versions:', err);
-    }
-  });
-
-  // Add deleted_at column to essays if it doesn't exist
-  db.run(`ALTER TABLE essays ADD COLUMN deleted_at DATETIME DEFAULT NULL`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding deleted_at column to essays:', err);
-    }
-  });
+// Manual sync trigger endpoint
+app.post('/api/database/sync', async (req, res) => {
+  try {
+    await db.triggerSync();
+    res.json({
+      success: true,
+      message: 'Sync triggered successfully',
+      status: db.getStatus()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // Routes
-app.get('/api/essays', (req, res) => {
-  db.all('SELECT * FROM essays WHERE deleted_at IS NULL ORDER BY updated_at DESC', (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
+app.get('/api/essays', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM essays WHERE deleted_at IS NULL ORDER BY updated_at DESC');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get all unique tags
-app.get('/api/tags', (req, res) => {
-  db.all('SELECT tags FROM essays WHERE tags != "" AND deleted_at IS NULL', (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    
+app.get('/api/tags', async (req, res) => {
+  try {
+    const result = await db.query('SELECT tags FROM essays WHERE tags != \'\' AND deleted_at IS NULL');
+    const rows = result.rows;
+
     const allTags = new Set();
     rows.forEach(row => {
       if (row.tags) {
@@ -130,190 +98,175 @@ app.get('/api/tags', (req, res) => {
         });
       }
     });
-    
+
     res.json(Array.from(allTags).sort());
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get recently deleted essays (within 30 days)
-app.get('/api/essays/deleted', (req, res) => {
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  db.all('SELECT * FROM essays WHERE deleted_at IS NOT NULL AND deleted_at > ? ORDER BY deleted_at DESC', [thirtyDaysAgo], (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
+app.get('/api/essays/deleted', async (req, res) => {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const result = await db.query('SELECT * FROM essays WHERE deleted_at IS NOT NULL AND deleted_at > $1 ORDER BY deleted_at DESC', [thirtyDaysAgo]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/essays/:id', (req, res) => {
-  const { id } = req.params;
-  db.get('SELECT * FROM essays WHERE id = ?', [id], (err, row) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
+app.get('/api/essays/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const row = await db.get('SELECT * FROM essays WHERE id = $1', [id]);
     if (!row) {
       res.status(404).json({ error: 'Essay not found' });
       return;
     }
     res.json(row);
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/essays', (req, res) => {
-  const { title, content, prompt, tags } = req.body;
-  const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
-  db.run('INSERT INTO essays (title, content, prompt, tags) VALUES (?, ?, ?, ?)', [title, content, prompt || '', tagsStr], function (err) {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json({ id: this.lastID, title, content, prompt: prompt || '', tags: tagsStr });
-  });
+app.post('/api/essays', async (req, res) => {
+  try {
+    const { title, content, prompt, tags } = req.body;
+    const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+    const result = await db.run('INSERT INTO essays (title, content, prompt, tags) VALUES ($1, $2, $3, $4) RETURNING id', [title, content, prompt || '', tagsStr]);
+    res.json({ id: result.lastID, title, content, prompt: prompt || '', tags: tagsStr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.put('/api/essays/:id', (req, res) => {
-  const { title, content, prompt, tags } = req.body;
-  const { id } = req.params;
-  const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
-  db.run('UPDATE essays SET title = ?, content = ?, prompt = ?, tags = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-    [title, content, prompt || '', tagsStr, id], function (err) {
-      if (err) {
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      res.json({ id, title, content, prompt: prompt || '', tags: tagsStr });
-    });
+app.put('/api/essays/:id', async (req, res) => {
+  try {
+    const { title, content, prompt, tags } = req.body;
+    const { id } = req.params;
+    const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+    await db.run('UPDATE essays SET title = $1, content = $2, prompt = $3, tags = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5',
+      [title, content, prompt || '', tagsStr, id]);
+    res.json({ id, title, content, prompt: prompt || '', tags: tagsStr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.delete('/api/essays/:id', (req, res) => {
-  const { id } = req.params;
-  db.run('UPDATE essays SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?', [id], function (err) {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json({ deleted: this.changes });
-  });
+app.delete('/api/essays/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.run('UPDATE essays SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
+    res.json({ deleted: result.changes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 
 // Restore a deleted essay
-app.put('/api/essays/:id/restore', (req, res) => {
-  const { id } = req.params;
-  db.run('UPDATE essays SET deleted_at = NULL WHERE id = ?', [id], function (err) {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    if (this.changes === 0) {
+app.put('/api/essays/:id/restore', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.run('UPDATE essays SET deleted_at = NULL WHERE id = $1', [id]);
+    if (result.changes === 0) {
       res.status(404).json({ error: 'Essay not found or already restored' });
       return;
     }
     res.json({ restored: true });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Permanently delete an essay
-app.delete('/api/essays/:id/permanent', (req, res) => {
-  const { id } = req.params;
-  db.run('DELETE FROM essays WHERE id = ?', [id], function (err) {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json({ deleted: this.changes });
-  });
+app.delete('/api/essays/:id/permanent', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.run('DELETE FROM essays WHERE id = $1', [id]);
+    res.json({ deleted: result.changes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Clean up essays deleted more than 30 days ago
-app.post('/api/essays/cleanup', (req, res) => {
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  db.run('DELETE FROM essays WHERE deleted_at IS NOT NULL AND deleted_at <= ?', [thirtyDaysAgo], function (err) {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json({ cleaned: this.changes });
-  });
+app.post('/api/essays/cleanup', async (req, res) => {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const result = await db.run('DELETE FROM essays WHERE deleted_at IS NOT NULL AND deleted_at <= $1', [thirtyDaysAgo]);
+    res.json({ cleaned: result.changes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Version history endpoints with pagination
-app.get('/api/essays/:id/versions', (req, res) => {
-  const { id } = req.params;
-  const page = parseInt(req.query.page) || 0;
-  const limit = parseInt(req.query.limit) || 50;
-  const offset = page * limit;
+app.get('/api/essays/:id/versions', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const page = parseInt(req.query.page) || 0;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = page * limit;
 
-  console.log(`Getting versions for essay ID: ${id}, page: ${page}, limit: ${limit}, offset: ${offset}`);
+    console.log(`Getting versions for essay ID: ${id}, page: ${page}, limit: ${limit}, offset: ${offset}`);
 
-  // Get total count first
-  db.get('SELECT COUNT(*) as total FROM essay_versions WHERE essay_id = ?', [id], (err, countResult) => {
-    if (err) {
-      console.error('Database error getting version count:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-
+    // Get total count first
+    const countResult = await db.get('SELECT COUNT(*) as total FROM essay_versions WHERE essay_id = $1', [id]);
     const totalVersions = countResult.total;
 
     // Get paginated versions
-    db.all('SELECT * FROM essay_versions WHERE essay_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [id, limit, offset], (err, rows) => {
-        if (err) {
-          console.error('Database error getting versions:', err);
-          res.status(500).json({ error: err.message });
-          return;
-        }
+    const result = await db.query('SELECT * FROM essay_versions WHERE essay_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      [id, limit, offset]);
 
-        console.log(`Found ${rows.length} versions for essay ${id} (page ${page})`);
-        res.json({
-          versions: rows,
-          pagination: {
-            page: page,
-            limit: limit,
-            total: totalVersions,
-            hasMore: (offset + rows.length) < totalVersions
-          }
-        });
-      });
-  });
-});
-
-app.post('/api/essays/:id/versions', (req, res) => {
-  const { id } = req.params;
-  const { title, content, prompt, tags, changes_only } = req.body;
-  const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
-
-  console.log(`Creating version for essay ID: ${id}, changes: ${changes_only}`);
-
-  db.run('INSERT INTO essay_versions (essay_id, title, content, prompt, tags, changes_only) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, title, content, prompt || null, tagsStr, changes_only || null], function (err) {
-      if (err) {
-        console.error('Database error creating version:', err);
-        res.status(500).json({ error: err.message });
-        return;
+    console.log(`Found ${result.rows.length} versions for essay ${id} (page ${page})`);
+    res.json({
+      versions: result.rows,
+      pagination: {
+        page: page,
+        limit: limit,
+        total: totalVersions,
+        hasMore: (offset + result.rows.length) < totalVersions
       }
-      console.log(`Created version with ID: ${this.lastID}`);
-      res.json({ id: this.lastID, essay_id: id, title, content, prompt, tags: tagsStr });
     });
+  } catch (err) {
+    console.error('Database error getting versions:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/essays/:id/versions/:versionId', (req, res) => {
-  const { id, versionId } = req.params;
-  db.get('SELECT * FROM essay_versions WHERE id = ? AND essay_id = ?', [versionId, id], (err, row) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
+app.post('/api/essays/:id/versions', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, content, prompt, tags, changes_only } = req.body;
+    const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+
+    console.log(`Creating version for essay ID: ${id}, changes: ${changes_only}`);
+
+    const result = await db.run('INSERT INTO essay_versions (essay_id, title, content, prompt, tags, changes_only) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [id, title, content, prompt || null, tagsStr, changes_only || null]);
+
+    console.log(`Created version with ID: ${result.lastID}`);
+    res.json({ id: result.lastID, essay_id: id, title, content, prompt, tags: tagsStr });
+  } catch (err) {
+    console.error('Database error creating version:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/essays/:id/versions/:versionId', async (req, res) => {
+  try {
+    const { id, versionId } = req.params;
+    const row = await db.get('SELECT * FROM essay_versions WHERE id = $1 AND essay_id = $2', [versionId, id]);
     if (!row) {
       res.status(404).json({ error: 'Version not found' });
       return;
     }
     res.json(row);
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // AI Chat endpoint with real AI integration
@@ -795,21 +748,22 @@ app.get('/api/test-ai', async (req, res) => {
 });
 
 // Automatic cleanup function
-function cleanupOldDeletedEssays() {
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  
-  db.run(
-    'DELETE FROM essays WHERE deleted_at IS NOT NULL AND deleted_at < ?',
-    [thirtyDaysAgo.toISOString()],
-    function(err) {
-      if (err) {
-        console.error('Error during automatic cleanup:', err);
-      } else if (this.changes > 0) {
-        console.log(`Automatically cleaned up ${this.changes} old deleted essays`);
-      }
+async function cleanupOldDeletedEssays() {
+  try {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const result = await db.run(
+      'DELETE FROM essays WHERE deleted_at IS NOT NULL AND deleted_at < $1',
+      [thirtyDaysAgo.toISOString()]
+    );
+
+    if (result.changes > 0) {
+      console.log(`Automatically cleaned up ${result.changes} old deleted essays`);
     }
-  );
+  } catch (err) {
+    console.error('Error during automatic cleanup:', err);
+  }
 }
 
 // Run cleanup on startup

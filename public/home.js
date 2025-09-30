@@ -17,6 +17,7 @@ class EssayHome {
         this.loadTags();
         this.setupViewMode();
         this.setupTagsInput();
+        this.setupDatabaseStatus();
     }
 
     setupTheme() {
@@ -113,6 +114,11 @@ class EssayHome {
             window.location.href = '/deleted.html';
         });
 
+        // Database status click
+        document.getElementById('database-status').addEventListener('click', () => {
+            this.triggerSync();
+        });
+
     }
 
     toggleTheme() {
@@ -147,11 +153,11 @@ class EssayHome {
         try {
             const response = await fetch('/api/essays');
             const essays = await response.json();
-            
+
             // Store all essays for search functionality
             this.allEssays = essays;
             this.filteredEssays = essays;
-            
+
             // Display essays using the new method
             this.displayEssays(essays);
 
@@ -174,13 +180,13 @@ class EssayHome {
     createEssayCard(essay) {
         const card = document.createElement('div');
         card.className = 'essay-card';
-        
+
         // Generate preview image from content
         const previewImage = this.generatePreviewImage(essay.content, essay.title);
-        
+
         // Extract preview text
         const previewText = this.extractPreviewText(essay.content);
-        
+
         // Format date
         const date = new Date(essay.updated_at).toLocaleDateString('en-US', {
             year: 'numeric',
@@ -271,7 +277,7 @@ class EssayHome {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.font = 'bold 18px Inter';
         ctx.textAlign = 'center';
-        
+
         // Title
         const titleText = title.length > 25 ? title.substring(0, 25) + '...' : title;
         ctx.fillText(titleText, 150, 60);
@@ -280,15 +286,15 @@ class EssayHome {
         const textContent = content.replace(/<[^>]*>/g, '').substring(0, 100);
         ctx.font = '12px Inter';
         ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        
+
         const words = textContent.split(' ');
         let line = '';
         let y = 90;
-        
+
         for (let i = 0; i < Math.min(words.length, 15); i++) {
             const testLine = line + words[i] + ' ';
             const metrics = ctx.measureText(testLine);
-            
+
             if (metrics.width > 260 && i > 0) {
                 ctx.fillText(line, 150, y);
                 line = words[i] + ' ';
@@ -356,7 +362,7 @@ class EssayHome {
 
     addTag(tagName) {
         if (!tagName || this.currentTags.includes(tagName)) return;
-        
+
         this.currentTags.push(tagName);
         this.renderTags();
     }
@@ -369,10 +375,10 @@ class EssayHome {
     renderTags() {
         const tagsWrapper = document.getElementById('tags-input-wrapper');
         const tagsInput = document.getElementById('essay-tags-input');
-        
+
         // Remove existing tag chips
         tagsWrapper.querySelectorAll('.tag-chip').forEach(chip => chip.remove());
-        
+
         // Add current tags
         this.currentTags.forEach((tag, index) => {
             const tagChip = document.createElement('div');
@@ -389,14 +395,14 @@ class EssayHome {
 
     showTagSuggestions(input) {
         const tagsSuggestions = document.getElementById('tags-suggestions');
-        
+
         if (!input.trim()) {
             tagsSuggestions.style.display = 'none';
             return;
         }
 
-        const suggestions = this.allTags.filter(tag => 
-            tag.toLowerCase().includes(input.toLowerCase()) && 
+        const suggestions = this.allTags.filter(tag =>
+            tag.toLowerCase().includes(input.toLowerCase()) &&
             !this.currentTags.includes(tag)
         ).slice(0, 5);
 
@@ -405,10 +411,10 @@ class EssayHome {
             return;
         }
 
-        tagsSuggestions.innerHTML = suggestions.map(tag => 
+        tagsSuggestions.innerHTML = suggestions.map(tag =>
             `<div class="tag-suggestion" onclick="essayHome.selectTagSuggestion('${tag}')">${tag}</div>`
         ).join('');
-        
+
         tagsSuggestions.style.display = 'block';
     }
 
@@ -426,7 +432,7 @@ class EssayHome {
     async createNewEssay() {
         const title = document.getElementById('essay-title-input').value.trim();
         const prompt = document.getElementById('essay-prompt').value.trim();
-        
+
         if (!title) {
             this.showNotification('Please enter an essay title', 'warning');
             return;
@@ -440,14 +446,14 @@ class EssayHome {
                 },
                 body: JSON.stringify({
                     title,
-                    content: '<p>Start writing your essay here...</p>',
+                    content: '<p placeholder="Start writing your essay here..."></p>',
                     prompt,
                     tags: this.currentTags
                 }),
             });
 
             const result = await response.json();
-            
+
             if (result.id) {
                 this.hideNewEssayModal();
                 this.showNotification('Essay created successfully!', 'success');
@@ -570,7 +576,7 @@ class EssayHome {
         // Date matching (highest priority)
         if (dateQuery) {
             const essayDate = new Date(essay.updated_at);
-            
+
             if (dateQuery.type === 'specific') {
                 const daysDiff = Math.abs((essayDate - dateQuery.date) / (1000 * 60 * 60 * 24));
                 if (daysDiff <= 1) score += 100; // Same day
@@ -619,28 +625,28 @@ class EssayHome {
 
     getMatchType(essay, searchTerms, dateQuery) {
         if (dateQuery) return 'date';
-        
+
         const title = essay.title.toLowerCase();
         const hasTitle = searchTerms.some(term => title.includes(term));
-        
+
         if (hasTitle) return 'title';
-        
+
         const content = this.stripHtml(essay.content).toLowerCase();
         const hasContent = searchTerms.some(term => content.includes(term));
-        
+
         if (hasContent) return 'content';
-        
+
         const prompt = (essay.prompt || '').toLowerCase();
         const hasPrompt = searchTerms.some(term => prompt.includes(term));
-        
+
         if (hasPrompt) return 'prompt';
-        
+
         return 'other';
     }
 
     parseSearchDate(query) {
         const lowerQuery = query.toLowerCase().trim();
-        
+
         // Try to parse various date formats
         const datePatterns = [
             /(\d{1,2})\/(\d{1,2})\/(\d{4})/,  // MM/DD/YYYY
@@ -657,7 +663,7 @@ class EssayHome {
                     new Date(p3, p1 - 1, p2), // MM/DD/YYYY
                     new Date(p1, p2 - 1, p3), // YYYY-MM-DD
                 ];
-                
+
                 for (const date of dates) {
                     if (!isNaN(date.getTime())) {
                         return { type: 'specific', date: date };
@@ -712,7 +718,7 @@ class EssayHome {
 
         // Try natural language dates
         const today = new Date();
-        
+
         if (lowerQuery.includes('today')) return { type: 'specific', date: today };
         if (lowerQuery.includes('yesterday')) {
             const yesterday = new Date(today);
@@ -735,7 +741,7 @@ class EssayHome {
 
     showSearchSuggestions(results, query) {
         const searchSuggestions = document.getElementById('search-suggestions');
-        
+
         if (results.length === 0) {
             searchSuggestions.innerHTML = '<div class="search-no-results">No essays found</div>';
             searchSuggestions.style.display = 'block';
@@ -783,12 +789,12 @@ class EssayHome {
     highlightSearchTerms(text, query) {
         const terms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
         let highlighted = text;
-        
+
         terms.forEach(term => {
             const regex = new RegExp(`(${term})`, 'gi');
             highlighted = highlighted.replace(regex, '<span class="search-highlight">$1</span>');
         });
-        
+
         return highlighted;
     }
 
@@ -806,7 +812,7 @@ class EssayHome {
         searchInput.value = '';
         clearSearchBtn.style.display = 'none';
         searchSuggestions.style.display = 'none';
-        
+
         this.displayEssays(this.allEssays);
         searchInput.blur();
     }
@@ -841,7 +847,7 @@ class EssayHome {
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
         notification.textContent = message;
-        
+
         Object.assign(notification.style, {
             position: 'fixed',
             top: '20px',
@@ -883,6 +889,93 @@ class EssayHome {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Database Status Methods
+    async setupDatabaseStatus() {
+        await this.updateDatabaseStatus();
+        // Update status every 30 seconds
+        setInterval(() => {
+            this.updateDatabaseStatus();
+        }, 30000);
+    }
+
+    async updateDatabaseStatus() {
+        try {
+            const response = await fetch('/api/database/status');
+            const status = await response.json();
+
+            const statusElement = document.getElementById('database-status');
+            const statusText = document.getElementById('status-text');
+            const statusIcon = statusElement.querySelector('i');
+
+            // Remove all status classes
+            statusElement.className = 'database-status';
+
+            if (status.cloudAvailable) {
+                statusElement.classList.add('connected');
+                statusIcon.className = 'fas fa-cloud';
+                statusText.textContent = 'Cloud';
+                statusElement.title = 'Connected to cloud database';
+            } else {
+                statusElement.classList.add('local');
+                statusIcon.className = 'fas fa-laptop';
+                statusText.textContent = 'Local';
+                statusElement.title = 'Using local database (cloud unavailable)';
+            }
+
+            if (status.syncInProgress) {
+                statusElement.classList.add('syncing');
+                statusIcon.className = 'fas fa-sync-alt';
+                statusText.textContent = 'Syncing...';
+                statusElement.title = 'Syncing data to cloud...';
+            }
+
+        } catch (error) {
+            console.error('Failed to update database status:', error);
+            const statusElement = document.getElementById('database-status');
+            const statusText = document.getElementById('status-text');
+            const statusIcon = statusElement.querySelector('i');
+
+            statusElement.className = 'database-status error';
+            statusIcon.className = 'fas fa-exclamation-triangle';
+            statusText.textContent = 'Error';
+            statusElement.title = 'Database connection error';
+        }
+    }
+
+    async triggerSync() {
+        const statusElement = document.getElementById('database-status');
+        const statusText = document.getElementById('status-text');
+        const statusIcon = statusElement.querySelector('i');
+
+        // Show syncing state
+        statusElement.className = 'database-status syncing';
+        statusIcon.className = 'fas fa-sync-alt';
+        statusText.textContent = 'Syncing...';
+
+        try {
+            const response = await fetch('/api/database/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                this.showNotification('Sync completed successfully!', 'success');
+                await this.updateDatabaseStatus();
+            } else {
+                throw new Error(result.error || 'Sync failed');
+            }
+
+        } catch (error) {
+            console.error('Sync failed:', error);
+            this.showNotification('Sync failed: ' + error.message, 'error');
+            await this.updateDatabaseStatus();
+        }
     }
 }
 

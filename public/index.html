@@ -30,10 +30,10 @@
                 <input type="text" id="essay-title" placeholder="Untitled Essay" class="title-input">
             </div>
             <div class="header-right">
-                <div id="autosave-status" class="autosave-status">
-                    <i class="fas fa-circle"></i>
-                </div>
                 <button id="version-history-btn" class="btn btn-secondary">
+                    <div id="autosave-status" class="autosave-status">
+                        <i class="fas fa-circle"></i>
+                    </div>
                     <i class="fas fa-history"></i> History
                 </button>
                 <button id="chat-reopen-btn" class="btn btn-secondary" style="display: none;">
@@ -113,8 +113,7 @@
                 </div>
 
                 
-                <div id="editor" contenteditable="true" class="editor">
-                    <p>Start writing your essay here...</p>
+                <div id="editor" contenteditable="true" class="editor" placeholder="Start writing your essay here...">
                 </div>
 
                 <!-- Zen Mode Header -->
@@ -319,6 +318,16 @@
                                         <span>Dark</span>
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                <h4>Word Count Limit</h4>
+                                <p>Set maximum word count (0 = no limit)</p>
+                            </div>
+                            <div class="setting-control">
+                                <input type="number" id="max-word-count" class="setting-input" min="0" placeholder="No limit" />
                             </div>
                         </div>
                     </div>
