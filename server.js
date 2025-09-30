@@ -58,8 +58,8 @@ app.get('/api/database/status', (req, res) => {
     const status = db.getStatus();
     res.json({
       ...status,
-      message: status.cloudAvailable 
-        ? 'Connected to cloud database' 
+      message: status.cloudAvailable
+        ? 'Connected to cloud database'
         : 'Using local database (cloud unavailable)'
     });
   } catch (error) {
@@ -77,23 +77,23 @@ app.get('/api/database/status', (req, res) => {
 app.post('/api/database/sync', async (req, res) => {
   try {
     if (!db) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Database not initialized' 
+      return res.status(500).json({
+        success: false,
+        error: 'Database not initialized'
       });
     }
 
-    await db.triggerSync();
-    res.json({ 
-      success: true, 
-      message: 'Sync triggered successfully',
+    const result = await db.triggerSync();
+    res.json({
+      success: true,
+      message: result || 'Sync triggered successfully',
       status: db.getStatus()
     });
   } catch (error) {
     console.error('Sync error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -101,9 +101,9 @@ app.post('/api/database/sync', async (req, res) => {
 // Middleware to check database readiness
 const checkDatabaseReady = (req, res, next) => {
   if (!db || !db.connection) {
-    return res.status(503).json({ 
-      error: 'Database not ready', 
-      message: 'Please wait a moment and try again' 
+    return res.status(503).json({
+      error: 'Database not ready',
+      message: 'Please wait a moment and try again'
     });
   }
   next();
@@ -796,12 +796,12 @@ async function cleanupOldDeletedEssays() {
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const result = await db.run(
       'DELETE FROM essays WHERE deleted_at IS NOT NULL AND deleted_at < $1',
       [thirtyDaysAgo.toISOString()]
     );
-    
+
     if (result.changes > 0) {
       console.log(`Automatically cleaned up ${result.changes} old deleted essays`);
     }

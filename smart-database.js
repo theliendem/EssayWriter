@@ -20,20 +20,15 @@ class SmartDatabase {
     console.log('🔄 Initializing smart database system...');
 
     try {
-      // Try cloud database first
-      if (await this.tryCloudConnection()) {
-        this.type = 'postgresql';
-        this.cloudAvailable = true;
-        console.log('✅ Connected to cloud database');
-      } else {
-        this.type = 'sqlite';
-        this.cloudAvailable = false;
-        console.log('📱 Using local database (cloud unavailable)');
-        await this.initLocalDatabase();
-      }
-
-      // Initialize schema
+      // Always start with local database
+      this.type = 'sqlite';
+      this.cloudAvailable = false;
+      await this.initLocalDatabase();
       await this.initializeSchema();
+      console.log('📱 Local database initialized');
+
+      // Try to connect to cloud in background
+      this.initializeCloudConnection();
 
       // Start sync monitoring
       this.startSyncMonitoring();
@@ -53,6 +48,18 @@ class SmartDatabase {
     }
   }
 
+  async initializeCloudConnection() {
+    // Try to connect to cloud in background
+    if (await this.tryCloudConnection()) {
+      this.cloudAvailable = true;
+      console.log('✅ Cloud database connection established');
+      // Trigger initial sync
+      this.triggerSync();
+    } else {
+      console.log('📱 Cloud database unavailable, using local only');
+    }
+  }
+
   async tryCloudConnection() {
     if (!process.env.DATABASE_URL) {
       console.log('⚠️  No DATABASE_URL found, using local database');
@@ -62,26 +69,26 @@ class SmartDatabase {
     try {
       console.log('🌐 Testing cloud database connection...');
 
-      // Create the main connection pool directly
-      this.connection = new Pool({
+      // Create a separate cloud connection pool for syncing
+      this.cloudConnection = new Pool({
         connectionString: process.env.DATABASE_URL,
         ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-        max: 10,
+        max: 5,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
         acquireTimeoutMillis: 10000,
         allowExitOnIdle: false
       });
 
-      // Add error handling for the pool
-      this.connection.on('error', (err) => {
-        console.error('PostgreSQL pool error:', err);
-        // Don't crash the app, just log the error
+      // Add error handling for the cloud pool
+      this.cloudConnection.on('error', (err) => {
+        console.error('PostgreSQL cloud pool error:', err);
+        this.cloudAvailable = false;
       });
 
       // Test the connection
       const client = await Promise.race([
-        this.connection.connect(),
+        this.cloudConnection.connect(),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Connection timeout')), 10000)
         )
@@ -94,13 +101,13 @@ class SmartDatabase {
     } catch (error) {
       console.log(`❌ Cloud connection failed: ${error.message}`);
       // Clean up the failed connection
-      if (this.connection) {
+      if (this.cloudConnection) {
         try {
-          await this.connection.end();
+          await this.cloudConnection.end();
         } catch (cleanupError) {
           console.log('Cleanup error:', cleanupError.message);
         }
-        this.connection = null;
+        this.cloudConnection = null;
       }
       return false;
     }
@@ -259,30 +266,37 @@ class SmartDatabase {
   }
 
   startSyncMonitoring() {
-    // Check for cloud connection every 30 seconds
+    // Check for cloud connection every 10 seconds
     setInterval(async () => {
       if (!this.cloudAvailable && this.retryCount < this.maxRetries) {
         await this.tryReconnectToCloud();
       }
-    }, 30000);
+    }, 10000);
 
-    // Sync every 2 minutes if cloud is available
+    // Sync every 5 seconds if cloud is available
     setInterval(async () => {
       if (this.cloudAvailable && !this.syncInProgress) {
         await this.syncToCloud();
       }
-    }, 120000);
+    }, 5000);
   }
 
   async triggerSync() {
     if (this.syncInProgress) return;
 
-    console.log('🔄 Triggering sync to cloud...');
-    await this.syncToCloud();
+    console.log('🔄 Triggering sync...');
+
+    if (!this.cloudAvailable) {
+      console.log('📱 Cloud database unavailable - changes saved locally only');
+      return 'Cloud database unavailable - changes saved locally only';
+    } else {
+      await this.syncToCloud();
+      return 'Sync completed successfully';
+    }
   }
 
   async syncToCloud() {
-    if (this.syncInProgress || !this.cloudAvailable) return;
+    if (this.syncInProgress || !this.cloudAvailable || !this.cloudConnection) return;
 
     this.syncInProgress = true;
     console.log('🔄 Syncing local changes to cloud...');
@@ -310,13 +324,15 @@ class SmartDatabase {
         await this.syncVersionToCloud(version);
       }
 
+      // Also sync any changes from cloud to local
+      await this.syncFromCloud();
+
       this.lastSyncTime = new Date();
       console.log('✅ Sync completed successfully');
 
     } catch (error) {
       console.error('❌ Sync failed:', error.message);
-      // If sync fails, fallback to local
-      this.fallbackToLocal();
+      this.cloudAvailable = false;
     } finally {
       this.syncInProgress = false;
     }
@@ -353,17 +369,17 @@ class SmartDatabase {
   async syncEssayToCloud(essay) {
     try {
       // Check if essay exists in cloud
-      const existing = await this.get('SELECT id FROM essays WHERE id = $1', [essay.id]);
+      const existing = await this.cloudQuery('SELECT id FROM essays WHERE id = $1', [essay.id]);
 
-      if (existing) {
+      if (existing && existing.rows.length > 0) {
         // Update existing
-        await this.run(
+        await this.cloudRun(
           'UPDATE essays SET title = $1, content = $2, prompt = $3, tags = $4, updated_at = $5, deleted_at = $6 WHERE id = $7',
           [essay.title, essay.content, essay.prompt, essay.tags, essay.updated_at, essay.deleted_at, essay.id]
         );
       } else {
         // Insert new
-        await this.run(
+        await this.cloudRun(
           'INSERT INTO essays (id, title, content, prompt, tags, created_at, updated_at, deleted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
           [essay.id, essay.title, essay.content, essay.prompt, essay.tags, essay.created_at, essay.updated_at, essay.deleted_at]
         );
@@ -376,16 +392,86 @@ class SmartDatabase {
   async syncVersionToCloud(version) {
     try {
       // Check if version exists in cloud
-      const existing = await this.get('SELECT id FROM essay_versions WHERE id = $1', [version.id]);
+      const existing = await this.cloudQuery('SELECT id FROM essay_versions WHERE id = $1', [version.id]);
 
-      if (!existing) {
-        await this.run(
+      if (!existing || existing.rows.length === 0) {
+        await this.cloudRun(
           'INSERT INTO essay_versions (id, essay_id, title, content, prompt, tags, changes_only, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
           [version.id, version.essay_id, version.title, version.content, version.prompt, version.tags, version.changes_only, version.created_at]
         );
       }
     } catch (error) {
       console.error(`❌ Failed to sync version ${version.id}:`, error.message);
+    }
+  }
+
+  // Cloud database query methods
+  async cloudQuery(sql, params = []) {
+    if (!this.cloudConnection) throw new Error('Cloud connection not available');
+
+    return new Promise((resolve, reject) => {
+      this.cloudConnection.query(sql, params, (err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
+  }
+
+  async cloudRun(sql, params = []) {
+    if (!this.cloudConnection) throw new Error('Cloud connection not available');
+
+    return new Promise((resolve, reject) => {
+      this.cloudConnection.query(sql, params, (err, result) => {
+        if (err) reject(err);
+        else resolve({
+          lastID: result.rows[0]?.id || result.insertId,
+          changes: result.rowCount
+        });
+      });
+    });
+  }
+
+  async syncFromCloud() {
+    if (!this.cloudConnection) return;
+
+    try {
+      // Get cloud changes since last sync
+      const lastSync = this.lastSyncTime || new Date(0);
+      const cloudChanges = await this.cloudQuery(
+        'SELECT * FROM essays WHERE updated_at > $1 ORDER BY updated_at',
+        [lastSync.toISOString()]
+      );
+
+      // Sync cloud changes to local
+      for (const essay of cloudChanges.rows) {
+        await this.syncCloudEssayToLocal(essay);
+      }
+
+    } catch (error) {
+      console.error('❌ Failed to sync from cloud:', error.message);
+    }
+  }
+
+  async syncCloudEssayToLocal(essay) {
+    try {
+      // Check if essay exists locally
+      const existing = await this.get('SELECT id FROM essays WHERE id = ?', [essay.id]);
+
+      if (existing) {
+        // Update existing
+        await this.run(
+          'UPDATE essays SET title = ?, content = ?, prompt = ?, tags = ?, updated_at = ?, deleted_at = ? WHERE id = ?',
+          [essay.title, essay.content, essay.prompt, essay.tags, essay.updated_at, essay.deleted_at, essay.id]
+        );
+      } else {
+        // Insert new
+        await this.run(
+          'INSERT INTO essays (id, title, content, prompt, tags, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [essay.id, essay.title, essay.content, essay.prompt, essay.tags, essay.created_at, essay.updated_at, essay.deleted_at]
+        );
+      }
+    } catch (error) {
+      console.error(`❌ Failed to sync cloud essay ${essay.id} to local:`, error.message);
     }
   }
 
@@ -457,7 +543,10 @@ class SmartDatabase {
       type: this.type,
       cloudAvailable: this.cloudAvailable,
       lastSync: this.lastSyncTime,
-      syncInProgress: this.syncInProgress
+      syncInProgress: this.syncInProgress,
+      message: this.cloudAvailable
+        ? 'Local database with cloud sync'
+        : 'Local database only (cloud unavailable)'
     };
   }
 
@@ -486,14 +575,19 @@ class SmartDatabase {
   async close() {
     if (this.connection) {
       try {
-        if (this.type === 'postgresql') {
-          await this.connection.end();
-        } else {
-          this.connection.close();
-        }
-        console.log('✅ Database connection closed');
+        this.connection.close();
+        console.log('✅ Local database connection closed');
       } catch (error) {
-        console.error('Error closing database connection:', error.message);
+        console.error('Error closing local database connection:', error.message);
+      }
+    }
+
+    if (this.cloudConnection) {
+      try {
+        await this.cloudConnection.end();
+        console.log('✅ Cloud database connection closed');
+      } catch (error) {
+        console.error('Error closing cloud database connection:', error.message);
       }
     }
   }

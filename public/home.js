@@ -914,14 +914,14 @@ class EssayHome {
 
             if (status.cloudAvailable) {
                 statusElement.classList.add('connected');
-                statusIcon.className = 'fas fa-cloud';
-                statusText.textContent = 'Cloud';
-                statusElement.title = 'Connected to cloud database';
+                statusIcon.className = 'fas fa-sync-alt';
+                statusText.textContent = 'Synced';
+                statusElement.title = 'Local database with cloud sync';
             } else {
                 statusElement.classList.add('local');
                 statusIcon.className = 'fas fa-laptop';
                 statusText.textContent = 'Local';
-                statusElement.title = 'Using local database (cloud unavailable)';
+                statusElement.title = 'Local database only (cloud unavailable)';
             }
 
             if (status.syncInProgress) {
@@ -965,7 +965,11 @@ class EssayHome {
             const result = await response.json();
 
             if (result.success) {
-                this.showNotification('Sync completed successfully!', 'success');
+                if (result.message && result.message.includes('Already using cloud database')) {
+                    this.showNotification('Already connected to cloud database - all changes are automatically saved!', 'success');
+                } else {
+                    this.showNotification('Sync completed successfully!', 'success');
+                }
                 await this.updateDatabaseStatus();
             } else {
                 throw new Error(result.error || 'Sync failed');
