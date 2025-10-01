@@ -7,7 +7,7 @@ class SyncService {
     this.syncInterval = null;
     this.isSyncing = false;
     this.lastSyncTime = null; // Track last sync timestamp
-    this.syncIntervalMs = 3000; // Sync every 3 seconds
+    this.syncIntervalMs = 5000; // Sync every 5 seconds
   }
 
   // Initialize sync service
@@ -157,15 +157,25 @@ class SyncService {
   // Pull cloud essays to local
   async pullEssaysFromCloud() {
     try {
-      // Get all cloud essays
-      const { data: cloudEssays, error } = await supabase
-        .from('essays')
-        .select('*');
+      // Get cloud essays modified since last sync
+      let query = supabase.from('essays').select('*');
+
+      if (this.lastSyncTime) {
+        query = query.gt('updated_at', new Date(this.lastSyncTime).toISOString());
+      }
+
+      const { data: cloudEssays, error } = await query;
 
       if (error) {
         console.error('Error fetching essays from cloud:', error);
         return;
       }
+
+      if (cloudEssays.length === 0) {
+        return;
+      }
+
+      console.log(`Pulling ${cloudEssays.length} changed essay(s) from cloud...`);
 
       // Update local database with cloud essays
       for (const essay of cloudEssays) {
@@ -311,14 +321,25 @@ class SyncService {
   // Pull cloud versions to local
   async pullVersionsFromCloud() {
     try {
-      const { data: cloudVersions, error } = await supabase
-        .from('essay_versions')
-        .select('*');
+      // Get cloud versions created since last sync
+      let query = supabase.from('essay_versions').select('*');
+
+      if (this.lastSyncTime) {
+        query = query.gt('created_at', new Date(this.lastSyncTime).toISOString());
+      }
+
+      const { data: cloudVersions, error } = await query;
 
       if (error) {
         console.error('Error fetching versions from cloud:', error);
         return;
       }
+
+      if (cloudVersions.length === 0) {
+        return;
+      }
+
+      console.log(`Pulling ${cloudVersions.length} new version(s) from cloud...`);
 
       for (const version of cloudVersions) {
         await new Promise((resolve, reject) => {
