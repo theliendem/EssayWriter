@@ -17,7 +17,6 @@ class EssayHome {
         this.loadTags();
         this.setupViewMode();
         this.setupTagsInput();
-        this.setupDatabaseStatus();
     }
 
     setupTheme() {
@@ -112,11 +111,6 @@ class EssayHome {
         // Recently deleted button
         document.getElementById('recently-deleted-btn').addEventListener('click', () => {
             window.location.href = '/deleted.html';
-        });
-
-        // Database status click
-        document.getElementById('database-status').addEventListener('click', () => {
-            this.triggerSync();
         });
 
     }
@@ -889,97 +883,6 @@ class EssayHome {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    }
-
-    // Database Status Methods
-    async setupDatabaseStatus() {
-        await this.updateDatabaseStatus();
-        // Update status every 30 seconds
-        setInterval(() => {
-            this.updateDatabaseStatus();
-        }, 30000);
-    }
-
-    async updateDatabaseStatus() {
-        try {
-            const response = await fetch('/api/database/status');
-            const status = await response.json();
-
-            const statusElement = document.getElementById('database-status');
-            const statusText = document.getElementById('status-text');
-            const statusIcon = statusElement.querySelector('i');
-
-            // Remove all status classes
-            statusElement.className = 'database-status';
-
-            if (status.cloudAvailable) {
-                statusElement.classList.add('connected');
-                statusIcon.className = 'fas fa-sync-alt';
-                statusText.textContent = 'Synced';
-                statusElement.title = 'Local database with cloud sync';
-            } else {
-                statusElement.classList.add('local');
-                statusIcon.className = 'fas fa-laptop';
-                statusText.textContent = 'Local';
-                statusElement.title = 'Local database only (cloud unavailable)';
-            }
-
-            if (status.syncInProgress) {
-                statusElement.classList.add('syncing');
-                statusIcon.className = 'fas fa-sync-alt';
-                statusText.textContent = 'Syncing...';
-                statusElement.title = 'Syncing data to cloud...';
-            }
-
-        } catch (error) {
-            console.error('Failed to update database status:', error);
-            const statusElement = document.getElementById('database-status');
-            const statusText = document.getElementById('status-text');
-            const statusIcon = statusElement.querySelector('i');
-
-            statusElement.className = 'database-status error';
-            statusIcon.className = 'fas fa-exclamation-triangle';
-            statusText.textContent = 'Error';
-            statusElement.title = 'Database connection error';
-        }
-    }
-
-    async triggerSync() {
-        const statusElement = document.getElementById('database-status');
-        const statusText = document.getElementById('status-text');
-        const statusIcon = statusElement.querySelector('i');
-
-        // Show syncing state
-        statusElement.className = 'database-status syncing';
-        statusIcon.className = 'fas fa-sync-alt';
-        statusText.textContent = 'Syncing...';
-
-        try {
-            const response = await fetch('/api/database/sync', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                if (result.message && result.message.includes('Already using cloud database')) {
-                    this.showNotification('Already connected to cloud database - all changes are automatically saved!', 'success');
-                } else {
-                    this.showNotification('Sync completed successfully!', 'success');
-                }
-                await this.updateDatabaseStatus();
-            } else {
-                throw new Error(result.error || 'Sync failed');
-            }
-
-        } catch (error) {
-            console.error('Sync failed:', error);
-            this.showNotification('Sync failed: ' + error.message, 'error');
-            await this.updateDatabaseStatus();
-        }
     }
 }
 
