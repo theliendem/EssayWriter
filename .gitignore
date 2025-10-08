@@ -1,2 +1,4 @@
 .env
 essays.db
+
+node_modules/
