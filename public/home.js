@@ -7,6 +7,7 @@ class EssayHome {
         this.searchTimeout = null;
         this.currentTags = [];
         this.allTags = [];
+        this.updateCheckInterval = null;
         this.init();
     }
 
@@ -17,6 +18,7 @@ class EssayHome {
         this.loadTags();
         this.setupViewMode();
         this.setupTagsInput();
+        this.startUpdatePolling();
     }
 
     setupTheme() {
@@ -883,6 +885,48 @@ class EssayHome {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Start polling for cloud updates
+    startUpdatePolling() {
+        // Poll every 3 seconds
+        this.updateCheckInterval = setInterval(() => {
+            this.checkForCloudUpdates();
+        }, 3000);
+    }
+
+    // Check for new/deleted essays from cloud
+    async checkForCloudUpdates() {
+        try {
+            const response = await fetch('/api/sync/updates');
+            if (response.ok) {
+                const { newEssays, deletedEssays } = await response.json();
+
+                // Handle new essays
+                if (newEssays.length > 0) {
+                    console.log('New essays from cloud:', newEssays);
+                    await this.loadEssays();
+
+                    // Clear tracking
+                    for (const id of newEssays) {
+                        await fetch(`/api/sync/updates/${id}/clear`, { method: 'POST' });
+                    }
+                }
+
+                // Handle deleted essays
+                if (deletedEssays.length > 0) {
+                    console.log('Deleted essays from cloud:', deletedEssays);
+                    await this.loadEssays();
+
+                    // Clear tracking
+                    for (const id of deletedEssays) {
+                        await fetch(`/api/sync/updates/${id}/clear`, { method: 'POST' });
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error checking for cloud updates:', error);
+        }
     }
 }
 

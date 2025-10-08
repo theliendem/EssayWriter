@@ -16,6 +16,8 @@ class SyncService extends EventEmitter {
     this.maxRetries = 5;
     this.initialSyncDone = false;
     this.updatedEssays = new Map(); // Track essays updated from cloud
+    this.newEssays = new Set(); // Track new essays from cloud
+    this.deletedEssays = new Set(); // Track deleted essays from cloud
   }
 
   // Get or create a unique device ID
@@ -416,8 +418,8 @@ class SyncService extends EventEmitter {
                   if (err) reject(err);
                   else {
                     console.log(`✓ Pulled new essay ${cloudEssay.id} from cloud`);
-                    this.updatedEssays.set(cloudEssay.id, cloudEssay);
-                    this.emit('essay-updated', cloudEssay.id);
+                    this.newEssays.add(cloudEssay.id);
+                    this.emit('essay-created', cloudEssay.id);
                     resolve();
                   }
                 }
@@ -427,6 +429,9 @@ class SyncService extends EventEmitter {
               const shouldUpdate = !this.shouldUpdateCloud(localEssay, cloudEssay);
 
               if (shouldUpdate) {
+                // Check if essay was deleted in cloud
+                const wasDeleted = !localEssay.deleted_at && cloudEssay.deleted_at;
+
                 this.localDb.run(
                   `UPDATE essays
                    SET title = ?, content = ?, prompt = ?, tags = ?,
@@ -442,8 +447,14 @@ class SyncService extends EventEmitter {
                     if (err) reject(err);
                     else {
                       console.log(`✓ Updated essay ${cloudEssay.id} from cloud`);
-                      this.updatedEssays.set(cloudEssay.id, cloudEssay);
-                      this.emit('essay-updated', cloudEssay.id);
+
+                      if (wasDeleted) {
+                        this.deletedEssays.add(cloudEssay.id);
+                        this.emit('essay-deleted', cloudEssay.id);
+                      } else {
+                        this.updatedEssays.set(cloudEssay.id, cloudEssay);
+                        this.emit('essay-updated', cloudEssay.id);
+                      }
                       resolve();
                     }
                   }
@@ -649,12 +660,26 @@ class SyncService extends EventEmitter {
     return Array.from(this.updatedEssays.keys());
   }
 
+  // Get list of essay IDs that were created from cloud
+  getNewEssayIds() {
+    return Array.from(this.newEssays);
+  }
+
+  // Get list of essay IDs that were deleted from cloud
+  getDeletedEssayIds() {
+    return Array.from(this.deletedEssays);
+  }
+
   // Clear the updated essays tracking
   clearUpdatedEssays(essayId = null) {
     if (essayId) {
       this.updatedEssays.delete(essayId);
+      this.newEssays.delete(essayId);
+      this.deletedEssays.delete(essayId);
     } else {
       this.updatedEssays.clear();
+      this.newEssays.clear();
+      this.deletedEssays.clear();
     }
   }
 }

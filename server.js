@@ -190,12 +190,19 @@ app.get('/api/essays/:id/sync-status', (req, res) => {
 // Check for essays updated from cloud
 app.get('/api/sync/updates', (req, res) => {
   if (!syncService) {
-    res.json({ updatedEssays: [] });
+    res.json({ updatedEssays: [], newEssays: [], deletedEssays: [] });
     return;
   }
 
   const updatedIds = syncService.getUpdatedEssayIds();
-  res.json({ updatedEssays: updatedIds });
+  const newIds = syncService.getNewEssayIds();
+  const deletedIds = syncService.getDeletedEssayIds();
+
+  res.json({
+    updatedEssays: updatedIds,
+    newEssays: newIds,
+    deletedEssays: deletedIds
+  });
 });
 
 // Clear essay from update tracking
