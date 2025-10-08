@@ -1482,6 +1482,9 @@ class EssayPlatform {
                 prompt: prompt,
                 tags: tags.join(',')
             };
+
+            // Check sync status after a brief delay
+            setTimeout(() => this.checkSyncStatus(), 1000);
         } catch (error) {
             console.error('Save error:', error);
             this.updateAutosaveStatus('error');
@@ -1531,17 +1534,38 @@ class EssayPlatform {
     updateAutosaveStatus(status) {
         const statusElement = document.getElementById('autosave-status');
 
-        // Remove all status classes except version-saved (we want to preserve it)
-        statusElement.classList.remove('saving', 'saved', 'error');
+        // Remove all status classes
+        statusElement.classList.remove('saving', 'saved', 'synced', 'error', 'version-saved');
 
         // Add the specific status class
         if (status) {
             statusElement.classList.add(status);
         }
 
-        // If this is a regular save and we had version-saved, remove it
-        if (status === 'saved' || status === 'saving') {
-            statusElement.classList.remove('version-saved');
+        // Update tooltip text
+        const tooltips = {
+            'saving': 'Saving...',
+            'saved': 'Saved locally',
+            'synced': 'Synced to cloud',
+            'error': 'Error saving',
+            'version-saved': 'Version saved'
+        };
+        statusElement.title = tooltips[status] || '';
+    }
+
+    async checkSyncStatus() {
+        if (!this.currentEssayId) return;
+
+        try {
+            const response = await fetch(`/api/essays/${this.currentEssayId}/sync-status`);
+            if (response.ok) {
+                const { synced } = await response.json();
+                if (synced) {
+                    this.updateAutosaveStatus('synced');
+                }
+            }
+        } catch (error) {
+            console.error('Error checking sync status:', error);
         }
     }
 

@@ -166,6 +166,27 @@ app.get('/api/essays/:id', (req, res) => {
   });
 });
 
+// Check if essay has been synced to cloud
+app.get('/api/essays/:id/sync-status', (req, res) => {
+  const { id } = req.params;
+  db.get('SELECT last_synced_at, updated_at FROM essays WHERE id = ?', [id], (err, row) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (!row) {
+      res.status(404).json({ error: 'Essay not found' });
+      return;
+    }
+
+    // Essay is synced if last_synced_at exists and is >= updated_at
+    const synced = row.last_synced_at &&
+                   new Date(row.last_synced_at) >= new Date(row.updated_at);
+
+    res.json({ synced });
+  });
+});
+
 app.post('/api/essays', (req, res) => {
   const { title, content, prompt, tags } = req.body;
   const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
@@ -840,12 +861,13 @@ cleanupOldDeletedEssays();
 // Schedule cleanup to run daily (24 hours = 86400000 milliseconds)
 setInterval(cleanupOldDeletedEssays, 86400000);
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Test enhanced AI detection at: http://localhost:${PORT}/api/test-ai`);
   console.log('Automatic cleanup scheduled to run daily');
 
   // Start sync service after server is running
   syncService = new SyncService(db);
-  syncService.start();
+  await syncService.start();
+  console.log('Sync service initialized successfully');
 });

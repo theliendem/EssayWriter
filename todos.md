@@ -13,3 +13,6 @@
 -   Make it so you can toggle the character count to exclude spaces
 -   Make it condense public/styles.css
 -   Make it have a public cloud database
+-   Add a dynamic vertical mode
+-   Add a export feature to different formats
+-   Add a link system

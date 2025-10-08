@@ -1255,14 +1255,23 @@ kdown Formatting in Chat */
   transition: all 0.3s ease;
 }
 
-/* Saving state - pulsing dot */
+/* Saving state - pulsing yellow dot */
 .autosave-status.saving {
   animation: savingPulse 1s ease-in-out infinite;
 }
 
-/* Saved state - solid green */
+.autosave-status.saving i {
+  color: #f59e0b;
+}
+
+/* Saved locally - solid green */
 .autosave-status.saved i {
   color: #10b981;
+}
+
+/* Synced to cloud - blue */
+.autosave-status.synced i {
+  color: #3b82f6;
 }
 
 /* Version saved - dark green outline */
@@ -1920,6 +1929,15 @@ body.zen-mode-exiting .prompt-section {
   justify-content: space-between;
   align-items: center;
   gap: 2rem;
+  margin-bottom: 2rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.setting-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .setting-label h4 {
