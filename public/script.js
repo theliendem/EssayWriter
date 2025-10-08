@@ -15,6 +15,7 @@ class EssayPlatform {
         this.versionLoading = false;
         this.sessionGroups = [];
         this.chatHistory = [];
+        this.updateCheckInterval = null;
         this.maxWordCount = parseInt(localStorage.getItem('maxWordCount')) || 0;
         this.isTypingInSettings = false;
         this.selectionTimeout = null;
@@ -51,6 +52,7 @@ class EssayPlatform {
         this.setupResizing();
         this.initializeChatPanel();
         this.initializeCarousel();
+        this.startUpdatePolling();
 
         // Initialize format buttons
         setTimeout(() => {
@@ -1566,6 +1568,82 @@ class EssayPlatform {
             }
         } catch (error) {
             console.error('Error checking sync status:', error);
+        }
+    }
+
+    // Start polling for cloud updates
+    startUpdatePolling() {
+        // Poll every 3 seconds
+        this.updateCheckInterval = setInterval(() => {
+            this.checkForCloudUpdates();
+        }, 3000);
+    }
+
+    // Check if current essay was updated from cloud
+    async checkForCloudUpdates() {
+        if (!this.currentEssayId) return;
+
+        try {
+            const response = await fetch('/api/sync/updates');
+            if (response.ok) {
+                const { updatedEssays } = await response.json();
+
+                if (updatedEssays.includes(this.currentEssayId)) {
+                    // Current essay was updated from cloud
+                    await this.reloadEssayFromCloud();
+
+                    // Clear this essay from update tracking
+                    await fetch(`/api/sync/updates/${this.currentEssayId}/clear`, {
+                        method: 'POST'
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Error checking for cloud updates:', error);
+        }
+    }
+
+    // Reload essay from database
+    async reloadEssayFromCloud() {
+        if (!this.currentEssayId) return;
+
+        try {
+            const response = await fetch(`/api/essays/${this.currentEssayId}`);
+            if (response.ok) {
+                const essay = await response.json();
+
+                // Update UI with new content
+                document.getElementById('essay-title').value = essay.title;
+                document.getElementById('editor').innerHTML = essay.content;
+                document.getElementById('prompt-editor').innerHTML = essay.prompt || '';
+
+                // Update tags
+                this.currentTags = essay.tags ? essay.tags.split(',').filter(t => t.trim()) : [];
+                this.renderTags();
+
+                // Update tracking
+                this.lastSavedContent = {
+                    title: essay.title,
+                    content: essay.content,
+                    prompt: essay.prompt || '',
+                    tags: essay.tags || ''
+                };
+
+                this.lastVersionContent = {
+                    title: essay.title,
+                    content: essay.content,
+                    prompt: essay.prompt || '',
+                    tags: essay.tags || ''
+                };
+
+                this.updateStats();
+                this.updateAutosaveStatus('synced');
+
+                // Show notification
+                this.showNotification('Essay updated from another device', 'success');
+            }
+        } catch (error) {
+            console.error('Error reloading essay:', error);
         }
     }
 

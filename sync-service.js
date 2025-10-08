@@ -1,8 +1,10 @@
 const supabase = require('./supabase-client');
 const { randomBytes } = require('crypto');
+const EventEmitter = require('events');
 
-class SyncService {
+class SyncService extends EventEmitter {
   constructor(localDb) {
+    super();
     this.localDb = localDb;
     this.syncInterval = null;
     this.isSyncing = false;
@@ -13,6 +15,7 @@ class SyncService {
     this.retryCount = 0;
     this.maxRetries = 5;
     this.initialSyncDone = false;
+    this.updatedEssays = new Map(); // Track essays updated from cloud
   }
 
   // Get or create a unique device ID
@@ -424,6 +427,8 @@ class SyncService {
                   if (err) reject(err);
                   else {
                     console.log(`✓ Pulled new essay ${cloudEssay.id} from cloud`);
+                    this.updatedEssays.set(cloudEssay.id, cloudEssay);
+                    this.emit('essay-updated', cloudEssay.id);
                     resolve();
                   }
                 }
@@ -448,6 +453,8 @@ class SyncService {
                     if (err) reject(err);
                     else {
                       console.log(`✓ Updated essay ${cloudEssay.id} from cloud`);
+                      this.updatedEssays.set(cloudEssay.id, cloudEssay);
+                      this.emit('essay-updated', cloudEssay.id);
                       resolve();
                     }
                   }
@@ -646,6 +653,20 @@ class SyncService {
       [this.deviceId, essayId],
       callback
     );
+  }
+
+  // Get list of essay IDs that were updated from cloud
+  getUpdatedEssayIds() {
+    return Array.from(this.updatedEssays.keys());
+  }
+
+  // Clear the updated essays tracking
+  clearUpdatedEssays(essayId = null) {
+    if (essayId) {
+      this.updatedEssays.delete(essayId);
+    } else {
+      this.updatedEssays.clear();
+    }
   }
 }
 

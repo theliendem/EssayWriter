@@ -187,6 +187,26 @@ app.get('/api/essays/:id/sync-status', (req, res) => {
   });
 });
 
+// Check for essays updated from cloud
+app.get('/api/sync/updates', (req, res) => {
+  if (!syncService) {
+    res.json({ updatedEssays: [] });
+    return;
+  }
+
+  const updatedIds = syncService.getUpdatedEssayIds();
+  res.json({ updatedEssays: updatedIds });
+});
+
+// Clear essay from update tracking
+app.post('/api/sync/updates/:id/clear', (req, res) => {
+  const { id } = req.params;
+  if (syncService) {
+    syncService.clearUpdatedEssays(parseInt(id));
+  }
+  res.json({ success: true });
+});
+
 app.post('/api/essays', (req, res) => {
   const { title, content, prompt, tags } = req.body;
   const tagsStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
