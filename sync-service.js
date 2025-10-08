@@ -117,46 +117,16 @@ class SyncService extends EventEmitter {
 
     console.log(`Starting sync service (syncing every ${this.syncIntervalMs / 1000} seconds)...`);
 
-    // Mark all existing essays as synced to avoid initial full sync
-    await this.markExistingAsSynced();
-
     // Pull any cloud changes on startup
     await this.pullEssays();
     await this.pullVersions();
 
     this.initialSyncDone = true;
-    this.lastPullTime = new Date().toISOString();
 
-    // Set up periodic sync (only pull changes from cloud periodically)
+    // Set up periodic sync
     this.syncInterval = setInterval(() => {
       this.sync();
     }, this.syncIntervalMs);
-  }
-
-  // Mark all existing local essays as already synced (prevents initial full sync)
-  async markExistingAsSynced() {
-    return new Promise((resolve) => {
-      this.localDb.run(
-        `UPDATE essays SET last_synced_at = CURRENT_TIMESTAMP WHERE last_synced_at IS NULL`,
-        (err) => {
-          if (err) {
-            console.error('Error marking existing essays as synced:', err);
-          } else {
-            console.log('Marked existing local essays as synced');
-          }
-
-          this.localDb.run(
-            `UPDATE essay_versions SET last_synced_at = CURRENT_TIMESTAMP WHERE last_synced_at IS NULL`,
-            (err) => {
-              if (err) {
-                console.error('Error marking existing versions as synced:', err);
-              }
-              resolve();
-            }
-          );
-        }
-      );
-    });
   }
 
   stop() {
@@ -215,8 +185,6 @@ class SyncService extends EventEmitter {
       // Sync essays and versions
       await this.syncEssays();
       await this.syncVersions();
-
-      this.lastPullTime = new Date().toISOString();
     } catch (error) {
       console.error('Sync error:', error.message);
     } finally {
@@ -387,14 +355,12 @@ class SyncService extends EventEmitter {
   // Pull cloud essays to local
   async pullEssays() {
     try {
-      let query = supabase.from('essays').select('*');
-
-      // Only get essays modified since last pull
-      if (this.lastPullTime) {
-        query = query.gt('updated_at', this.lastPullTime);
-      }
-
-      const { data: cloudEssays, error } = await query;
+      // Get all cloud essays to compare with local
+      const { data: cloudEssays, error } = await supabase
+        .from('essays')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(100); // Get latest 100 essays
 
       if (error) throw error;
 
@@ -402,9 +368,32 @@ class SyncService extends EventEmitter {
         return;
       }
 
-      console.log(`Pulling ${cloudEssays.length} essay(s) from cloud...`);
-
+      // Filter to only essays that need updating
+      const essaysToUpdate = [];
       for (const cloudEssay of cloudEssays) {
+        const localEssay = await new Promise((resolve) => {
+          this.localDb.get('SELECT * FROM essays WHERE id = ?', [cloudEssay.id], (err, row) => {
+            resolve(row);
+          });
+        });
+
+        // Update if: doesn't exist locally OR cloud is newer
+        if (!localEssay) {
+          console.log(`Essay ${cloudEssay.id} not found locally, will pull`);
+          essaysToUpdate.push(cloudEssay);
+        } else if (new Date(cloudEssay.updated_at) > new Date(localEssay.updated_at)) {
+          console.log(`Essay ${cloudEssay.id} is newer in cloud (cloud: ${cloudEssay.updated_at}, local: ${localEssay.updated_at})`);
+          essaysToUpdate.push(cloudEssay);
+        }
+      }
+
+      if (essaysToUpdate.length === 0) {
+        return;
+      }
+
+      console.log(`Pulling ${essaysToUpdate.length} essay(s) from cloud...`);
+
+      for (const cloudEssay of essaysToUpdate) {
         await new Promise((resolve, reject) => {
           this.localDb.get('SELECT * FROM essays WHERE id = ?', [cloudEssay.id], (err, localEssay) => {
             if (err) {
